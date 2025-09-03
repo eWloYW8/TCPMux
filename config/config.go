@@ -42,12 +42,19 @@ type Rule struct {
 }
 
 type HandlerConfig struct {
-	Name    string `yaml:"name"`
-	Type    string `yaml:"type"`
-	Backend string `yaml:"backend"`
-	TLS     bool   `yaml:"tls"`
-	Path    string `yaml:"path"`
-	Timeout int    `yaml:"timeout"`
+	Name    string            `yaml:"name"`
+	Type    string            `yaml:"type"`
+	Backend string            `yaml:"backend"`
+	TLS     *BackendTLSConfig `yaml:"tls"`
+	Path    string            `yaml:"path"`
+	Timeout int               `yaml:"timeout"`
+}
+
+type BackendTLSConfig struct {
+	Enabled            bool     `yaml:"enabled"`
+	InsecureSkipVerify bool     `yaml:"insecure_skip_verify"`
+	SNI                string   `yaml:"sni"`
+	ALPN               []string `yaml:"alpn"`
 }
 
 type LoggingConfig struct {

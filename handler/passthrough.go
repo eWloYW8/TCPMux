@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/eWloYW8/TCPMux/config"
-
 	"go.uber.org/zap"
 )
 
@@ -31,8 +30,34 @@ func (h *PassthroughHandler) Handle(conn net.Conn) {
 	var backendConn net.Conn
 	var err error
 
-	if h.config.TLS {
-		backendConn, err = tls.Dial("tcp", h.config.Backend, &tls.Config{InsecureSkipVerify: true})
+	if h.config.TLS != nil && h.config.TLS.Enabled {
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: h.config.TLS.InsecureSkipVerify,
+		}
+
+		var clientSNI string
+		var clientALPN string
+		if tlsConn, ok := conn.(*tls.Conn); ok {
+			connState := tlsConn.ConnectionState()
+			clientSNI = connState.ServerName
+			clientALPN = connState.NegotiatedProtocol
+		}
+
+		if h.config.TLS.SNI != "" {
+			tlsConfig.ServerName = h.config.TLS.SNI
+		} else if clientSNI != "" {
+			tlsConfig.ServerName = clientSNI
+		}
+
+		if len(h.config.TLS.ALPN) > 0 {
+			tlsConfig.NextProtos = h.config.TLS.ALPN
+		} else if clientALPN != "" {
+			tlsConfig.NextProtos = []string{clientALPN}
+		}
+
+		zap.L().Debug(fmt.Sprintf("Connecting to backend with TLS. Backend: %s, SNI: %s, ALPN: %v", h.config.Backend, tlsConfig.ServerName, tlsConfig.NextProtos))
+
+		backendConn, err = tls.Dial("tcp", h.config.Backend, tlsConfig)
 	} else {
 		backendConn, err = net.Dial("tcp", h.config.Backend)
 	}

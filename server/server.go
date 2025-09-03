@@ -149,7 +149,7 @@ func (s *Server) Stop() {
 	select {
 	case <-done:
 		zap.L().Info("All active connections handled gracefully.")
-	case <-time.After(15 * time.Second): // Graceful shutdown timeout
+	case <-time.After(5 * time.Second): // Graceful shutdown timeout
 		zap.L().Warn("Graceful shutdown timed out. Forcibly closing remaining connections.")
 		s.connsMux.Lock()
 		for conn := range s.activeConns {
@@ -253,11 +253,24 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 			handshakeTimeout = time.Duration(timeoutRule.Parameter.Timeout) * time.Second
 		}
 		if err := tlsConn.SetReadDeadline(time.Now().Add(handshakeTimeout)); err != nil {
-
 			zap.L().Error(fmt.Sprintf("failed to set handshake deadline: %v", err))
 			return
 		}
+
+		// Manually perform the handshake to get the connection state
+		if err := tlsConn.Handshake(); err != nil {
+			zap.L().Error(fmt.Sprintf("failed to complete TLS handshake: %v", err))
+			return
+		}
+
+		// Clear the deadline after handshake
+		if err := tlsConn.SetReadDeadline(time.Time{}); err != nil {
+			zap.L().Error(fmt.Sprintf("failed to clear handshake deadline: %v", err))
+			return
+		}
+
 		processingConn = tlsConn
+
 	} else {
 		zap.L().Debug(fmt.Sprintf("Plain TCP connection detected. Remote Addr: %s", rawConn.RemoteAddr().String()))
 		// For plain TCP, we use the buffered reader which has the peeked data.
