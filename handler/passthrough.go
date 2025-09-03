@@ -7,7 +7,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/eWloYW8/TCPMux/config"
 	"go.uber.org/zap"
@@ -78,15 +77,10 @@ func (h *PassthroughHandler) Handle(conn net.Conn) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	timeout := time.Duration(h.config.Timeout) * time.Second
-	if timeout == 0 {
-		timeout = 30 * time.Second
-	}
-
 	go func() {
 		defer wg.Done()
 		defer closeConns()
-		if _, err := copyWithTimeout(backendConn, conn, timeout); err != nil {
+		if _, err := io.Copy(backendConn, conn); err != nil {
 			if !isIgnorableError(err) {
 				zap.L().Error(fmt.Sprintf("Error copying data from client to backend: %v", err))
 			}
@@ -96,7 +90,7 @@ func (h *PassthroughHandler) Handle(conn net.Conn) {
 	go func() {
 		defer wg.Done()
 		defer closeConns()
-		if _, err := copyWithTimeout(conn, backendConn, timeout); err != nil {
+		if _, err := io.Copy(conn, backendConn); err != nil {
 			if !isIgnorableError(err) {
 				zap.L().Error(fmt.Sprintf("Error copying data from backend to client: %v", err))
 			}
@@ -107,60 +101,11 @@ func (h *PassthroughHandler) Handle(conn net.Conn) {
 	zap.L().Info(fmt.Sprintf("Connection closed. Remote Addr: %s, Backend: %s", conn.RemoteAddr().String(), h.config.Backend))
 }
 
-func copyWithTimeout(dst io.Writer, src io.Reader, timeout time.Duration) (written int64, err error) {
-	buf := make([]byte, 32*1024)
-	for {
-		if conn, ok := src.(net.Conn); ok {
-			if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
-				return 0, err
-			}
-		}
-
-		if conn, ok := dst.(net.Conn); ok {
-			if err := conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
-				return 0, err
-			}
-		}
-
-		nr, er := src.Read(buf)
-		if nr > 0 {
-			nw, ew := dst.Write(buf[0:nr])
-			if nw > 0 {
-				written += int64(nw)
-			}
-			if ew != nil {
-				err = ew
-				break
-			}
-			if nr != nw {
-				err = io.ErrShortWrite
-				break
-			}
-		}
-		if er != nil {
-			if er != io.EOF {
-				err = er
-			}
-			break
-		}
-	}
-	if conn, ok := src.(net.Conn); ok {
-		_ = conn.SetReadDeadline(time.Time{})
-	}
-	if conn, ok := dst.(net.Conn); ok {
-		_ = conn.SetWriteDeadline(time.Time{})
-	}
-	return written, err
-}
-
 func isIgnorableError(err error) bool {
 	if err == io.EOF {
 		return true
 	}
 
-	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-		return true
-	}
 	if strings.Contains(err.Error(), "connection reset by peer") ||
 		strings.Contains(err.Error(), "forcibly closed by the remote host") ||
 		strings.Contains(err.Error(), "use of closed network connection") {
