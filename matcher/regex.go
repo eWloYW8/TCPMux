@@ -24,9 +24,6 @@ func NewRegexMatcher(rule *config.Rule) (*RegexMatcher, error) {
 }
 
 func (m *RegexMatcher) Match(conn net.Conn, data []byte) bool {
-	if m.rule.TLSRequired && conn.RemoteAddr().Network() != "tcp+tls" {
-		return false
-	}
 	match, err := m.re.MatchString(string(data))
 	if err != nil {
 		zap.L().Error(fmt.Sprintf("regex match error: %v", err))
