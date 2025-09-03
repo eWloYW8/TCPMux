@@ -2,7 +2,7 @@
 
 A TCP traffic multiplexer written in Go.
 
-# Usage
+## Usage
 
 ```
 Usage of TCPMux:
