@@ -3,23 +3,25 @@ package matcher
 import (
 	"net"
 
-	"github.com/eWloYW8/TCPMux/config"
-
 	"github.com/dlclark/regexp2"
 	"go.uber.org/zap"
 )
 
-type RegexMatcher struct {
-	rule *config.Rule
-	re   *regexp2.Regexp
+type RegexMatcherConfig struct {
+	Pattern string `yaml:"pattern"`
 }
 
-func NewRegexMatcher(rule *config.Rule) (*RegexMatcher, error) {
-	re, err := regexp2.Compile(rule.Parameter.Pattern, 0)
+type RegexMatcher struct {
+	re *regexp2.Regexp
+}
+
+// NewRegexMatcher 接收 RegexMatcherConfig 类型
+func NewRegexMatcher(cfg *RegexMatcherConfig) (*RegexMatcher, error) {
+	re, err := regexp2.Compile(cfg.Pattern, 0)
 	if err != nil {
 		return nil, err
 	}
-	return &RegexMatcher{rule: rule, re: re}, nil
+	return &RegexMatcher{re: re}, nil
 }
 
 func (m *RegexMatcher) Match(conn net.Conn, data []byte) bool {

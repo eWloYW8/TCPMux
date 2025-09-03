@@ -4,16 +4,21 @@ import (
 	"crypto/tls"
 	"net"
 
-	"github.com/eWloYW8/TCPMux/config"
 	"go.uber.org/zap"
 )
 
-type TLSMatcher struct {
-	rule *config.Rule
+type TLSMatcherConfig struct {
+	SNI  string   `yaml:"sni"`
+	ALPN []string `yaml:"alpn"`
 }
 
-func NewTLSMatcher(rule *config.Rule) *TLSMatcher {
-	return &TLSMatcher{rule: rule}
+type TLSMatcher struct {
+	config *TLSMatcherConfig
+}
+
+// NewTLSMatcher 接收 TLSMatcherConfig 类型
+func NewTLSMatcher(cfg *TLSMatcherConfig) *TLSMatcher {
+	return &TLSMatcher{config: cfg}
 }
 
 func (m *TLSMatcher) Match(conn net.Conn, data []byte) bool {
@@ -24,16 +29,16 @@ func (m *TLSMatcher) Match(conn net.Conn, data []byte) bool {
 
 	state := tlsConn.ConnectionState()
 
-	if m.rule.Parameter.SNI != "" && m.rule.Parameter.SNI != state.ServerName {
+	if m.config.SNI != "" && m.config.SNI != state.ServerName {
 		zap.L().Debug("SNI mismatch",
-			zap.String("expected", m.rule.Parameter.SNI),
+			zap.String("expected", m.config.SNI),
 			zap.String("received", state.ServerName))
 		return false
 	}
 
-	if len(m.rule.Parameter.ALPN) > 0 {
+	if len(m.config.ALPN) > 0 {
 		var alpnMatch bool
-		for _, alpn := range m.rule.Parameter.ALPN {
+		for _, alpn := range m.config.ALPN {
 			if alpn == state.NegotiatedProtocol {
 				alpnMatch = true
 				break
@@ -41,7 +46,7 @@ func (m *TLSMatcher) Match(conn net.Conn, data []byte) bool {
 		}
 		if !alpnMatch {
 			zap.L().Debug("ALPN mismatch",
-				zap.Strings("expected", m.rule.Parameter.ALPN),
+				zap.Strings("expected", m.config.ALPN),
 				zap.String("received", state.NegotiatedProtocol))
 			return false
 		}

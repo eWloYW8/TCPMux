@@ -35,7 +35,6 @@ func (h *PassthroughHandler) Handle(conn net.Conn) {
 			InsecureSkipVerify: h.config.TLS.InsecureSkipVerify,
 		}
 
-		// Check if the original connection was already a TLS connection
 		if tlsConn, ok := conn.(*tls.Conn); ok {
 			connState := tlsConn.ConnectionState()
 			if h.config.TLS.SNI != "" {

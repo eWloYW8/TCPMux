@@ -2,12 +2,18 @@ package matcher
 
 import "net"
 
-type TimeoutMatcher struct{}
+type TimeoutMatcherConfig struct {
+	Timeout int `yaml:"timeout"`
+}
 
-func NewTimeoutMatcher() *TimeoutMatcher {
-	return &TimeoutMatcher{}
+type TimeoutMatcher struct {
+	config *TimeoutMatcherConfig
+}
+
+func NewTimeoutMatcher(cfg *TimeoutMatcherConfig) *TimeoutMatcher {
+	return &TimeoutMatcher{config: cfg}
 }
 
 func (m *TimeoutMatcher) Match(conn net.Conn, data []byte) bool {
-	return len(data) == 0
+	return true
 }

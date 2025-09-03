@@ -24,22 +24,13 @@ type SNIConfig struct {
 	Key  string `yaml:"key"`
 }
 
-type MatcherParameter struct {
-	Offset  int      `yaml:"offset"`
-	Value   string   `yaml:"value"`
-	Pattern string   `yaml:"pattern"`
-	Timeout int      `yaml:"timeout"`
-	SNI     string   `yaml:"sni"`
-	ALPN    []string `yaml:"alpn"`
-}
-
 type Rule struct {
-	Name        string           `yaml:"name"`
-	Type        string           `yaml:"type"`
-	TLSRequired bool             `yaml:"tls_required"`
-	Script      string           `yaml:"script"`
-	Parameter   MatcherParameter `yaml:"parameter"`
-	Handler     HandlerConfig    `yaml:"handler"`
+	Name        string        `yaml:"name"`
+	Type        string        `yaml:"type"`
+	TLSRequired bool          `yaml:"tls_required"`
+	Script      string        `yaml:"script"`
+	Parameter   yaml.Node     `yaml:"parameter"`
+	Handler     HandlerConfig `yaml:"handler"`
 }
 
 type HandlerConfig struct {

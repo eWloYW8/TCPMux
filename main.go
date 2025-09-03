@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -20,15 +19,15 @@ func main() {
 	configPath := flag.String("config", "config.yaml", "path to config file")
 	flag.Parse()
 
-	log.Println("Starting TCPMux server...")
+	zap.L().Info("Starting TCPMux server...", zap.String("version", Version))
 
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
+		zap.L().Fatal("failed to load config", zap.Error(err))
 	}
 
 	if err := logger.InitLogger(cfg.Logging); err != nil {
-		log.Fatalf("failed to initialize logger: %v", err)
+		zap.L().Fatal("failed to initialize logger", zap.Error(err))
 	}
 	defer zap.L().Sync()
 

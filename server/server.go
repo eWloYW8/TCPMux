@@ -21,26 +21,9 @@ const (
 	TLSHandshakeByte = 0x16
 )
 
-var matcherRegistry = make(map[string]func(*config.Rule) (matcher.Matcher, error))
 var handlerRegistry = make(map[string]func(*config.HandlerConfig) (handler.Handler, error))
 
 func init() {
-	matcherRegistry["substring"] = func(r *config.Rule) (matcher.Matcher, error) {
-		return matcher.NewSubstringMatcher(r), nil
-	}
-	matcherRegistry["regex"] = func(r *config.Rule) (matcher.Matcher, error) {
-		return matcher.NewRegexMatcher(r)
-	}
-	matcherRegistry["tls"] = func(r *config.Rule) (matcher.Matcher, error) {
-		return matcher.NewTLSMatcher(r), nil
-	}
-	matcherRegistry["default"] = func(r *config.Rule) (matcher.Matcher, error) {
-		return matcher.NewDefaultMatcher(), nil
-	}
-	matcherRegistry["timeout"] = func(r *config.Rule) (matcher.Matcher, error) {
-		return matcher.NewTimeoutMatcher(), nil
-	}
-
 	handlerRegistry["passthrough"] = func(h *config.HandlerConfig) (handler.Handler, error) {
 		return handler.NewPassthroughHandler(h), nil
 	}
@@ -52,6 +35,7 @@ type Server struct {
 	matchers    []matcher.Matcher
 	handlers    map[string]handler.Handler
 	tlsConfig   *tls.Config
+	timeoutRule *config.Rule
 	stopCh      chan struct{}
 	wg          sync.WaitGroup
 	connsMux    sync.Mutex
@@ -112,15 +96,47 @@ func (s *Server) initMatchers() error {
 	s.matchers = make([]matcher.Matcher, len(s.config.Rules))
 	for i := range s.config.Rules {
 		rule := &s.config.Rules[i]
-		factory, ok := matcherRegistry[rule.Type]
-		if !ok {
+
+		var m matcher.Matcher
+		var err error
+
+		switch rule.Type {
+		case "substring":
+			cfg := &matcher.SubstringMatcherConfig{}
+			if err = rule.Parameter.Decode(cfg); err != nil {
+				return fmt.Errorf("failed to decode substring matcher config for rule %s: %v", rule.Name, err)
+			}
+			m = matcher.NewSubstringMatcher(cfg)
+		case "regex":
+			cfg := &matcher.RegexMatcherConfig{}
+			if err = rule.Parameter.Decode(cfg); err != nil {
+				return fmt.Errorf("failed to decode regex matcher config for rule %s: %v", rule.Name, err)
+			}
+			m, err = matcher.NewRegexMatcher(cfg)
+		case "tls":
+			cfg := &matcher.TLSMatcherConfig{}
+			if err = rule.Parameter.Decode(cfg); err != nil {
+				return fmt.Errorf("failed to decode tls matcher config for rule %s: %v", rule.Name, err)
+			}
+			m = matcher.NewTLSMatcher(cfg)
+		case "default":
+			m = matcher.NewDefaultMatcher()
+		case "timeout":
+			cfg := &matcher.TimeoutMatcherConfig{}
+			if err = rule.Parameter.Decode(cfg); err != nil {
+				return fmt.Errorf("failed to decode timeout matcher config for rule %s: %v", rule.Name, err)
+			}
+			s.timeoutRule = rule
+			m = matcher.NewTimeoutMatcher(cfg)
+		default:
 			return fmt.Errorf("unknown matcher type: %s", rule.Type)
 		}
-		m, err := factory(rule)
+
 		if err != nil {
-			return fmt.Errorf("failed to create matcher %s: %v", rule.Name, err)
+			return err
 		}
 		s.matchers[i] = m
+
 		zap.L().Info("Initialized matcher",
 			zap.String("matcher_type", rule.Type),
 			zap.String("rule_name", rule.Name))
@@ -202,29 +218,55 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 
 	zap.L().Info("New connection", zap.String("remote_addr", rawConn.RemoteAddr().String()))
 
-	// Use a single read deadline for initial data/handshake
-	timeoutRule := s.getTimeoutRule()
-	if timeoutRule != nil {
-		if err := rawConn.SetReadDeadline(time.Now().Add(time.Duration(timeoutRule.Parameter.Timeout) * time.Second)); err != nil {
-			zap.L().Error("Failed to set read deadline", zap.Error(err), zap.String("remote_addr", rawConn.RemoteAddr().String()))
+	// 使用 goroutine 和 select 来手动处理超时
+	var timeout int
+	if s.timeoutRule != nil {
+		var cfg matcher.TimeoutMatcherConfig
+		if err := s.timeoutRule.Parameter.Decode(&cfg); err != nil {
+			zap.L().Error("failed to decode timeout rule parameter", zap.Error(err))
 			return
 		}
+		timeout = cfg.Timeout
 	}
 
-	conn, data, err := s.peekAndRead(rawConn)
-	if err != nil {
-		if netErr, ok := err.(net.Error); ok && netErr.Timeout() && timeoutRule != nil {
-			zap.L().Info("Connection timed out, applying timeout rule",
-				zap.String("rule_name", timeoutRule.Name),
-				zap.String("remote_addr", rawConn.RemoteAddr().String()))
-			s.executeHandler(rawConn, timeoutRule)
-			return
-		}
-		zap.L().Debug("Failed to peek or read from connection", zap.Error(err), zap.String("remote_addr", rawConn.RemoteAddr().String()))
+	readCh := make(chan struct {
+		conn net.Conn
+		data []byte
+		err  error
+	}, 1)
+
+	go func() {
+		conn, data, err := s.peekAndRead(rawConn)
+		readCh <- struct {
+			conn net.Conn
+			data []byte
+			err  error
+		}{conn, data, err}
+	}()
+
+	var conn net.Conn
+	var data []byte
+	var err error
+
+	select {
+	case result := <-readCh:
+		conn = result.conn
+		data = result.data
+		err = result.err
+	case <-time.After(time.Duration(timeout) * time.Second):
+		zap.L().Info("Connection timed out, applying timeout rule",
+			zap.String("rule_name", s.timeoutRule.Name),
+			zap.String("remote_addr", rawConn.RemoteAddr().String()))
+
+		s.executeHandler(rawConn, s.timeoutRule)
 		return
 	}
 
-	// Find and execute handler for matching rule
+	if err != nil {
+		zap.L().Debug("Failed to read from connection", zap.Error(err), zap.String("remote_addr", rawConn.RemoteAddr().String()))
+		return
+	}
+
 	if s.findAndExecuteHandler(conn, data) {
 		return
 	}
@@ -246,9 +288,6 @@ func (s *Server) peekAndRead(rawConn net.Conn) (net.Conn, []byte, error) {
 		if err := tlsConn.Handshake(); err != nil {
 			return nil, nil, fmt.Errorf("failed to complete TLS handshake: %v", err)
 		}
-		_ = tlsConn.SetReadDeadline(time.Time{})
-		// For TLS connections, we've already done the handshake and the matcher will use the connection state.
-		// There's no need to read application data here as TLS matchers don't rely on it.
 		return tlsConn, nil, nil
 	}
 
@@ -256,11 +295,7 @@ func (s *Server) peekAndRead(rawConn net.Conn) (net.Conn, []byte, error) {
 	conn := &bufferedConn{br, rawConn}
 	buf := make([]byte, 2048)
 	n, err := conn.Read(buf)
-	if err != nil && err != io.EOF {
-		return nil, nil, err
-	}
-	_ = rawConn.SetReadDeadline(time.Time{})
-	return conn, buf[:n], nil
+	return conn, buf[:n], err
 }
 
 func (s *Server) findAndExecuteHandler(conn net.Conn, data []byte) bool {
@@ -282,7 +317,6 @@ func (s *Server) findAndExecuteHandler(conn net.Conn, data []byte) bool {
 			continue
 		}
 
-		// TLS rules are matched immediately after handshake. Data is nil for those.
 		if rule.Type == "tls" && connIsTLS {
 			if m.Match(conn, nil) {
 				zap.L().Info("Matched TLS rule",
@@ -324,15 +358,6 @@ func (s *Server) executeHandler(conn net.Conn, rule *config.Rule) {
 		return
 	}
 	h.Handle(conn)
-}
-
-func (s *Server) getTimeoutRule() *config.Rule {
-	for i := range s.config.Rules {
-		if s.config.Rules[i].Type == "timeout" {
-			return &s.config.Rules[i]
-		}
-	}
-	return nil
 }
 
 type prefixedConn struct {

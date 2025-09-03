@@ -3,21 +3,24 @@ package matcher
 import (
 	"bytes"
 	"net"
-
-	"github.com/eWloYW8/TCPMux/config"
 )
 
-type SubstringMatcher struct {
-	rule *config.Rule
+type SubstringMatcherConfig struct {
+	Offset int    `yaml:"offset"`
+	Value  string `yaml:"value"`
 }
 
-func NewSubstringMatcher(rule *config.Rule) *SubstringMatcher {
-	return &SubstringMatcher{rule: rule}
+type SubstringMatcher struct {
+	config *SubstringMatcherConfig
+}
+
+func NewSubstringMatcher(cfg *SubstringMatcherConfig) *SubstringMatcher {
+	return &SubstringMatcher{config: cfg}
 }
 
 func (m *SubstringMatcher) Match(conn net.Conn, data []byte) bool {
-	if m.rule.Parameter.Offset < 0 || m.rule.Parameter.Offset > len(data) {
+	if m.config.Offset < 0 || m.config.Offset > len(data) {
 		return false
 	}
-	return bytes.Contains(data[m.rule.Parameter.Offset:], []byte(m.rule.Parameter.Value))
+	return bytes.Contains(data[m.config.Offset:], []byte(m.config.Value))
 }
