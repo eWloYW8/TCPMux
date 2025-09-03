@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -111,18 +112,36 @@ func (h *PassthroughHandler) Handle(conn net.Conn) {
 }
 
 func isIgnorableError(err error) bool {
+	if err == nil {
+		return true
+	}
+
 	if errors.Is(err, io.EOF) {
+		return true
+	}
+
+	if errors.Is(err, syscall.EPIPE) {
+		return true
+	}
+
+	if errors.Is(err, syscall.ECONNRESET) {
+		return true
+	}
+
+	if errors.Is(err, syscall.EADDRNOTAVAIL) {
 		return true
 	}
 
 	var opErr *net.OpError
 	if errors.As(err, &opErr) {
-		if opErr.Op == "read" && errors.Is(opErr.Err, syscall.ECONNRESET) {
+		if strings.Contains(opErr.Err.Error(), "use of closed network connection") {
 			return true
 		}
 	}
+
 	if errors.Is(err, syscall.WSAECONNRESET) {
 		return true
 	}
+
 	return false
 }
