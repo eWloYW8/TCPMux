@@ -1,6 +1,8 @@
+// FILE: matcher/regex.go
 package matcher
 
 import (
+	"fmt" // 新增
 	"net"
 
 	"github.com/eWloYW8/TCPMux/config"
@@ -28,7 +30,7 @@ func (m *RegexMatcher) Match(conn net.Conn, data []byte) bool {
 	}
 	match, err := m.re.MatchString(string(data))
 	if err != nil {
-		zap.L().Error("regex match error", zap.Error(err))
+		zap.L().Error(fmt.Sprintf("regex match error: %v", err))
 		return false
 	}
 	return match

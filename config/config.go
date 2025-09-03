@@ -1,3 +1,4 @@
+// FILE: config/config.go
 package config
 
 import (
@@ -52,6 +53,7 @@ type LoggingConfig struct {
 	Level  string `yaml:"level"`
 	Stderr bool   `yaml:"stderr"`
 	File   string `yaml:"file"`
+	Format string `yaml:"format"`
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -63,6 +65,10 @@ func LoadConfig(path string) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
+	}
+
+	if cfg.Logging.Format == "" {
+		cfg.Logging.Format = "console"
 	}
 
 	return &cfg, nil

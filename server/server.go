@@ -1,3 +1,4 @@
+// FILE: server/server.go
 package server
 
 import (
@@ -75,7 +76,7 @@ func (s *Server) initHandlers() error {
 		switch rule.Handler.Type {
 		case "passthrough":
 			s.handlers[rule.Handler.Name] = handler.NewPassthroughHandler(&rule.Handler)
-			zap.L().Info("Initialized passthrough handler", zap.String("handler_name", rule.Handler.Name))
+			zap.L().Info(fmt.Sprintf("Initialized passthrough handler. Handler name: %s", rule.Handler.Name))
 		default:
 			return fmt.Errorf("unknown handler type: %s", rule.Handler.Type)
 		}
@@ -105,7 +106,7 @@ func (s *Server) initMatchers() error {
 			return fmt.Errorf("unknown matcher type: %s", rule.Type)
 		}
 		s.matchers[i] = m
-		zap.L().Info("Initialized matcher", zap.String("matcher_type", rule.Type), zap.String("rule_name", rule.Name))
+		zap.L().Info(fmt.Sprintf("Initialized matcher. Matcher type: %s, Rule name: %s", rule.Type, rule.Name))
 	}
 	return nil
 }
@@ -153,7 +154,7 @@ func (s *Server) Stop() {
 		s.connsMux.Lock()
 		for conn := range s.activeConns {
 			conn.Close()
-			zap.L().Warn("Forcibly closed connection", zap.String("remote_addr", conn.RemoteAddr().String()))
+			zap.L().Warn(fmt.Sprintf("Forcibly closed connection. Remote Addr: %s", conn.RemoteAddr().String()))
 		}
 		s.connsMux.Unlock()
 	}
@@ -161,17 +162,17 @@ func (s *Server) Stop() {
 
 func (s *Server) acceptLoop(ln net.Listener) {
 	defer s.wg.Done()
-	zap.L().Info("listening for connections", zap.String("addr", ln.Addr().String()))
+	zap.L().Info(fmt.Sprintf("listening for connections on %s", ln.Addr().String()))
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			// Check if listener was closed by Stop()
 			if opErr, ok := err.(*net.OpError); ok && opErr.Op == "accept" && opErr.Err.Error() == "use of closed network connection" {
-				zap.L().Info("Accept loop shut down gracefully", zap.String("addr", ln.Addr().String()))
+				zap.L().Info(fmt.Sprintf("Accept loop shut down gracefully on %s", ln.Addr().String()))
 				return
 			}
-			zap.L().Error("failed to accept connection", zap.Error(err))
+			zap.L().Error(fmt.Sprintf("failed to accept connection: %v", err))
 			continue
 		}
 		s.wg.Add(1)
@@ -198,7 +199,7 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 	// Apply read deadline before peeking to detect TLS so that Peek won't block forever
 	if timeoutRule != nil {
 		if err := rawConn.SetReadDeadline(time.Now().Add(time.Duration(timeoutRule.Parameter.Timeout) * time.Second)); err != nil {
-			zap.L().Error("failed to set read deadline before TLS detection", zap.Error(err))
+			zap.L().Error(fmt.Sprintf("failed to set read deadline before TLS detection: %v", err))
 			return
 		}
 	}
@@ -215,20 +216,16 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 			if timeoutRule != nil {
 				// Clear the deadline before handing off to handler
 				_ = rawConn.SetReadDeadline(time.Time{})
-				zap.L().Info("Connection timed out during TLS detection, applying timeout rule",
-					zap.String("rule", timeoutRule.Name),
-					zap.String("remote_addr", rawConn.RemoteAddr().String()))
+				zap.L().Info(fmt.Sprintf("Connection timed out during TLS detection, applying timeout rule: %s, Remote Addr: %s", timeoutRule.Name, rawConn.RemoteAddr().String()))
 				if h, ok := s.handlers[timeoutRule.Handler.Name]; ok {
 					h.Handle(rawConn)
 				} else {
-					zap.L().Error("Timeout handler not found",
-						zap.String("rule", timeoutRule.Name),
-						zap.String("handler", timeoutRule.Handler.Name))
+					zap.L().Error(fmt.Sprintf("Timeout handler not found for rule: %s, Handler: %s", timeoutRule.Name, timeoutRule.Handler.Name))
 				}
 				return
 			}
 		}
-		zap.L().Error("failed to peek at connection", zap.Error(err))
+		zap.L().Error(fmt.Sprintf("failed to peek at connection: %v", err))
 		return
 	}
 
@@ -244,7 +241,7 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 	}
 
 	if isTLS {
-		zap.L().Debug("TLS connection detected", zap.String("remoteAddr", rawConn.RemoteAddr().String()))
+		zap.L().Debug(fmt.Sprintf("TLS connection detected. Remote Addr: %s", rawConn.RemoteAddr().String()))
 		// If it's a TLS handshake, wrap the connection in a TLS server
 		tlsConn := tls.Server(rawConn, s.tlsConfig)
 		// Set a deadline for the handshake to complete
@@ -254,12 +251,13 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 			handshakeTimeout = time.Duration(timeoutRule.Parameter.Timeout) * time.Second
 		}
 		if err := tlsConn.SetReadDeadline(time.Now().Add(handshakeTimeout)); err != nil {
-			zap.L().Error("failed to set handshake deadline", zap.Error(err))
+
+			zap.L().Error(fmt.Sprintf("failed to set handshake deadline: %v", err))
 			return
 		}
 		processingConn = tlsConn
 	} else {
-		zap.L().Debug("Plain TCP connection detected", zap.String("remoteAddr", rawConn.RemoteAddr().String()))
+		zap.L().Debug(fmt.Sprintf("Plain TCP connection detected. Remote Addr: %s", rawConn.RemoteAddr().String()))
 		// For plain TCP, we use the buffered reader which has the peeked data.
 		// We'll treat the buffered reader as the connection going forward to ensure
 		// the peeked byte is included in the first read.
@@ -272,7 +270,7 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 	// Handle timeout for the first data packet (or TLS handshake)
 	if timeoutRule != nil {
 		if err := processingConn.SetReadDeadline(time.Now().Add(time.Duration(timeoutRule.Parameter.Timeout) * time.Second)); err != nil {
-			zap.L().Error("failed to set read deadline", zap.Error(err))
+			zap.L().Error(fmt.Sprintf("failed to set read deadline: %v", err))
 			return
 		}
 	}
@@ -283,7 +281,7 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 
 	// Clear the deadline after the first read
 	if err := processingConn.SetReadDeadline(time.Time{}); err != nil {
-		zap.L().Error("failed to clear read deadline", zap.Error(err))
+		zap.L().Error(fmt.Sprintf("failed to clear read deadline: %v", err))
 		return
 	}
 
@@ -291,15 +289,13 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 		// Handle timeout error specifically
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 			if timeoutRule != nil {
-				zap.L().Info("Connection timed out, applying timeout rule",
-					zap.String("rule", timeoutRule.Name),
-					zap.String("remote_addr", processingConn.RemoteAddr().String()))
+				zap.L().Info(fmt.Sprintf("Connection timed out, applying timeout rule: %s, Remote Addr: %s", timeoutRule.Name, processingConn.RemoteAddr().String()))
 				h, ok := s.handlers[timeoutRule.Handler.Name]
 				if ok {
 					// Don't prepend data, as none was received
 					h.Handle(processingConn)
 				} else {
-					zap.L().Error("Timeout handler not found for rule", zap.String("rule", timeoutRule.Name))
+					zap.L().Error(fmt.Sprintf("Timeout handler not found for rule: %s", timeoutRule.Name))
 				}
 			}
 			return
@@ -307,9 +303,9 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 
 		// For TLS, handshake errors will appear here.
 		if isTLS {
-			zap.L().Debug("failed to complete TLS handshake or read first data", zap.Error(err))
+			zap.L().Debug(fmt.Sprintf("failed to complete TLS handshake or read first data: %v", err))
 		} else {
-			zap.L().Debug("failed to read from connection", zap.Error(err))
+			zap.L().Debug(fmt.Sprintf("failed to read from connection: %v", err))
 		}
 		return
 	}
@@ -331,21 +327,16 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 
 		// The original matcher interface doesn't know about TLS. We add the check here.
 		if rule.TLSRequired && !connIsTLS {
-			zap.L().Debug("Skipping rule because TLS is required but not detected",
-				zap.String("rule", rule.Name),
-				zap.String("remote_addr", processingConn.RemoteAddr().String()))
+			zap.L().Debug(fmt.Sprintf("Skipping rule because TLS is required but not detected. Rule: %s, Remote Addr: %s", rule.Name, processingConn.RemoteAddr().String()))
 			continue
 		}
 
 		if m.Match(processingConn, data) {
-			zap.L().Info("Matched rule",
-				zap.String("rule", rule.Name),
-				zap.String("handler", rule.Handler.Name),
-				zap.String("remote_addr", processingConn.RemoteAddr().String()))
+			zap.L().Info(fmt.Sprintf("Matched rule: %s, Handler: %s, Remote Addr: %s", rule.Name, rule.Handler.Name, processingConn.RemoteAddr().String()))
 
 			h, ok := s.handlers[rule.Handler.Name]
 			if !ok {
-				zap.L().Error("handler not found for rule", zap.String("rule", rule.Name))
+				zap.L().Error(fmt.Sprintf("handler not found for rule: %s", rule.Name))
 				return
 			}
 
@@ -354,13 +345,10 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 			h.Handle(finalConn)
 			return
 		} else {
-			zap.L().Debug("Rule did not match",
-				zap.String("rule", rule.Name),
-				zap.String("remote_addr", processingConn.RemoteAddr().String()))
+			zap.L().Debug(fmt.Sprintf("Rule did not match. Rule: %s, Remote Addr: %s", rule.Name, processingConn.RemoteAddr().String()))
 		}
 	}
-
-	zap.L().Info("no rule matched, closing connection", zap.String("remote_addr", processingConn.RemoteAddr().String()))
+	zap.L().Info(fmt.Sprintf("no rule matched, closing connection. Remote Addr: %s", processingConn.RemoteAddr().String()))
 }
 
 func (s *Server) getTimeoutRule() *config.Rule {

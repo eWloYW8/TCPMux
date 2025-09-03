@@ -1,3 +1,4 @@
+// FILE: logger/logger.go
 package logger
 
 import (
@@ -15,16 +16,26 @@ func InitLogger(cfg config.LoggingConfig) error {
 		return err
 	}
 
-	// 使用开发环境配置，它更具可读性并支持颜色
-	encoderConfig := zap.NewDevelopmentEncoderConfig()
-	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder        // 保持时间戳为 ISO 8601
-	encoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder // 启用彩色日志级别
+	consoleEncoderConfig := zap.NewDevelopmentEncoderConfig()
+	consoleEncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	consoleEncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	consoleEncoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
+
+	jsonEncoderConfig := zap.NewProductionEncoderConfig()
+	jsonEncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+
+	var encoder zapcore.Encoder
+	if cfg.Format == "json" {
+		encoder = zapcore.NewJSONEncoder(jsonEncoderConfig)
+	} else {
+		encoder = zapcore.NewConsoleEncoder(consoleEncoderConfig)
+	}
 
 	cores := []zapcore.Core{}
 
 	if cfg.Stderr {
 		cores = append(cores, zapcore.NewCore(
-			zapcore.NewConsoleEncoder(encoderConfig),
+			encoder,
 			zapcore.AddSync(zapcore.Lock(zapcore.NewMultiWriteSyncer(zapcore.AddSync(os.Stderr)))),
 			logLevel,
 		))
@@ -36,7 +47,7 @@ func InitLogger(cfg config.LoggingConfig) error {
 			return err
 		}
 		cores = append(cores, zapcore.NewCore(
-			zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
+			encoder,
 			fileSyncer,
 			logLevel,
 		))
