@@ -139,9 +139,5 @@ func isIgnorableError(err error) bool {
 		}
 	}
 
-	if errors.Is(err, syscall.WSAECONNRESET) {
-		return true
-	}
-
 	return false
 }
