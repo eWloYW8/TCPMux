@@ -248,18 +248,24 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 	var data []byte
 	var err error
 
-	select {
-	case result := <-readCh:
+	if s.timeoutRule != nil {
+		select {
+		case result := <-readCh:
+			conn = result.conn
+			data = result.data
+			err = result.err
+		case <-time.After(time.Duration(timeout) * time.Second):
+			zap.L().Info("Connection timed out, applying timeout rule",
+				zap.String("rule_name", s.timeoutRule.Name),
+				zap.String("remote_addr", rawConn.RemoteAddr().String()))
+			s.executeHandler(rawConn, s.timeoutRule)
+			return
+		}
+	} else {
+		result := <-readCh
 		conn = result.conn
 		data = result.data
 		err = result.err
-	case <-time.After(time.Duration(timeout) * time.Second):
-		zap.L().Info("Connection timed out, applying timeout rule",
-			zap.String("rule_name", s.timeoutRule.Name),
-			zap.String("remote_addr", rawConn.RemoteAddr().String()))
-
-		s.executeHandler(rawConn, s.timeoutRule)
-		return
 	}
 
 	if err != nil {
@@ -274,7 +280,7 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 	zap.L().Info("No rule matched, closing connection", zap.String("remote_addr", conn.RemoteAddr().String()))
 }
 
-// peekAndRead peeks for TLS and reads the first data packet
+// peekAndRead peeks for TLS and returns a new connection for subsequent reads
 func (s *Server) peekAndRead(rawConn net.Conn) (net.Conn, []byte, error) {
 	br := bufio.NewReader(rawConn)
 	peekedBytes, err := br.Peek(1)
@@ -284,14 +290,15 @@ func (s *Server) peekAndRead(rawConn net.Conn) (net.Conn, []byte, error) {
 
 	if s.tlsConfig != nil && len(peekedBytes) > 0 && peekedBytes[0] == TLSHandshakeByte {
 		zap.L().Debug("TLS connection detected", zap.String("remote_addr", rawConn.RemoteAddr().String()))
-		tlsConn := tls.Server(rawConn, s.tlsConfig)
+		conn := &bufferedConn{r: br, Conn: rawConn}
+		tlsConn := tls.Server(conn, s.tlsConfig)
 		if err := tlsConn.Handshake(); err != nil {
 			return nil, nil, fmt.Errorf("failed to complete TLS handshake: %v", err)
 		}
-		return tlsConn, nil, nil
+		buf := make([]byte, 2048)
+		n, err := tlsConn.Read(buf)
+		return tlsConn, buf[:n], err
 	}
-
-	// For non-TLS, read the first data packet from the buffered reader
 	conn := &bufferedConn{br, rawConn}
 	buf := make([]byte, 2048)
 	n, err := conn.Read(buf)
