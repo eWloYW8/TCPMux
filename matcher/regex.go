@@ -1,7 +1,6 @@
 package matcher
 
 import (
-	"fmt"
 	"net"
 
 	"github.com/eWloYW8/TCPMux/config"
@@ -26,7 +25,7 @@ func NewRegexMatcher(rule *config.Rule) (*RegexMatcher, error) {
 func (m *RegexMatcher) Match(conn net.Conn, data []byte) bool {
 	match, err := m.re.MatchString(string(data))
 	if err != nil {
-		zap.L().Error(fmt.Sprintf("regex match error: %v", err))
+		zap.L().Error("regex match error", zap.Error(err))
 		return false
 	}
 	return match

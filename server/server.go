@@ -18,20 +18,42 @@ import (
 )
 
 const (
-	// TLSHandshakeByte is the byte that indicates a TLS handshake.
-	TLSHandshakeByte = 0x16 // 22 in decimal
+	TLSHandshakeByte = 0x16
 )
 
-type Server struct {
-	config    *config.Config
-	listeners []net.Listener
-	matchers  []matcher.Matcher
-	handlers  map[string]handler.Handler
-	tlsConfig *tls.Config // Store TLS config here
-	stopCh    chan struct{}
-	wg        sync.WaitGroup
+var matcherRegistry = make(map[string]func(*config.Rule) (matcher.Matcher, error))
+var handlerRegistry = make(map[string]func(*config.HandlerConfig) (handler.Handler, error))
 
-	// Tracking active connections for graceful shutdown
+func init() {
+	matcherRegistry["substring"] = func(r *config.Rule) (matcher.Matcher, error) {
+		return matcher.NewSubstringMatcher(r), nil
+	}
+	matcherRegistry["regex"] = func(r *config.Rule) (matcher.Matcher, error) {
+		return matcher.NewRegexMatcher(r)
+	}
+	matcherRegistry["tls"] = func(r *config.Rule) (matcher.Matcher, error) {
+		return matcher.NewTLSMatcher(r), nil
+	}
+	matcherRegistry["default"] = func(r *config.Rule) (matcher.Matcher, error) {
+		return matcher.NewDefaultMatcher(), nil
+	}
+	matcherRegistry["timeout"] = func(r *config.Rule) (matcher.Matcher, error) {
+		return matcher.NewTimeoutMatcher(), nil
+	}
+
+	handlerRegistry["passthrough"] = func(h *config.HandlerConfig) (handler.Handler, error) {
+		return handler.NewPassthroughHandler(h), nil
+	}
+}
+
+type Server struct {
+	config      *config.Config
+	listeners   []net.Listener
+	matchers    []matcher.Matcher
+	handlers    map[string]handler.Handler
+	tlsConfig   *tls.Config
+	stopCh      chan struct{}
+	wg          sync.WaitGroup
 	connsMux    sync.Mutex
 	activeConns map[net.Conn]struct{}
 }
@@ -52,7 +74,6 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		return nil, err
 	}
 
-	// Create and store TLS config if enabled
 	if cfg.TLS.Enabled {
 		zap.L().Info("TLS is enabled, creating TLS config")
 		tlsConfig, err := tlspkg.NewTLSConfig(&cfg.TLS)
@@ -71,14 +92,18 @@ func (s *Server) initHandlers() error {
 		if _, ok := s.handlers[rule.Handler.Name]; ok {
 			continue
 		}
-
-		switch rule.Handler.Type {
-		case "passthrough":
-			s.handlers[rule.Handler.Name] = handler.NewPassthroughHandler(&rule.Handler)
-			zap.L().Info(fmt.Sprintf("Initialized passthrough handler. Handler name: %s", rule.Handler.Name))
-		default:
+		factory, ok := handlerRegistry[rule.Handler.Type]
+		if !ok {
 			return fmt.Errorf("unknown handler type: %s", rule.Handler.Type)
 		}
+		h, err := factory(&rule.Handler)
+		if err != nil {
+			return fmt.Errorf("failed to create handler %s: %v", rule.Handler.Name, err)
+		}
+		s.handlers[rule.Handler.Name] = h
+		zap.L().Info("Initialized handler",
+			zap.String("handler_name", rule.Handler.Name),
+			zap.String("handler_type", rule.Handler.Type))
 	}
 	return nil
 }
@@ -87,27 +112,18 @@ func (s *Server) initMatchers() error {
 	s.matchers = make([]matcher.Matcher, len(s.config.Rules))
 	for i := range s.config.Rules {
 		rule := &s.config.Rules[i]
-		var m matcher.Matcher
-		var err error
-		switch rule.Type {
-		case "substring":
-			m = matcher.NewSubstringMatcher(rule)
-		case "regex":
-			m, err = matcher.NewRegexMatcher(rule)
-			if err != nil {
-				return err
-			}
-		case "tls":
-			m = matcher.NewTLSMatcher(rule)
-		case "default":
-			m = matcher.NewDefaultMatcher()
-		case "timeout":
-			m = matcher.NewTimeoutMatcher()
-		default:
+		factory, ok := matcherRegistry[rule.Type]
+		if !ok {
 			return fmt.Errorf("unknown matcher type: %s", rule.Type)
 		}
+		m, err := factory(rule)
+		if err != nil {
+			return fmt.Errorf("failed to create matcher %s: %v", rule.Name, err)
+		}
 		s.matchers[i] = m
-		zap.L().Info(fmt.Sprintf("Initialized matcher. Matcher type: %s, Rule name: %s", rule.Type, rule.Name))
+		zap.L().Info("Initialized matcher",
+			zap.String("matcher_type", rule.Type),
+			zap.String("rule_name", rule.Name))
 	}
 	return nil
 }
@@ -118,7 +134,6 @@ func (s *Server) Start() error {
 		if err != nil {
 			return fmt.Errorf("failed to listen on %s: %v", addr, err)
 		}
-
 		s.listeners = append(s.listeners, ln)
 		s.wg.Add(1)
 		go s.acceptLoop(ln)
@@ -130,32 +145,25 @@ func (s *Server) Start() error {
 
 func (s *Server) Stop() {
 	zap.L().Info("Starting graceful shutdown...")
-
-	// 1. Close listeners to prevent new connections
 	for _, ln := range s.listeners {
 		ln.Close()
 	}
 	zap.L().Info("Listeners closed. No new connections will be accepted.")
-
-	// 2. Signal all connection handlers to start their graceful exit
 	close(s.stopCh)
-
-	// 3. Wait for all active connections to close with a timeout
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
 		close(done)
 	}()
-
 	select {
 	case <-done:
 		zap.L().Info("All active connections handled gracefully.")
-	case <-time.After(5 * time.Second): // Graceful shutdown timeout
+	case <-time.After(5 * time.Second):
 		zap.L().Warn("Graceful shutdown timed out. Forcibly closing remaining connections.")
 		s.connsMux.Lock()
 		for conn := range s.activeConns {
 			conn.Close()
-			zap.L().Warn(fmt.Sprintf("Forcibly closed connection. Remote Addr: %s", conn.RemoteAddr().String()))
+			zap.L().Warn("Forcibly closed connection", zap.String("remote_addr", conn.RemoteAddr().String()))
 		}
 		s.connsMux.Unlock()
 	}
@@ -163,16 +171,16 @@ func (s *Server) Stop() {
 
 func (s *Server) acceptLoop(ln net.Listener) {
 	defer s.wg.Done()
-	zap.L().Info(fmt.Sprintf("listening for connections on %s", ln.Addr().String()))
+	zap.L().Info("Listening for connections", zap.String("address", ln.Addr().String()))
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			if opErr, ok := err.(*net.OpError); ok && opErr.Op == "accept" && opErr.Err.Error() == "use of closed network connection" {
-				zap.L().Info(fmt.Sprintf("Accept loop shut down gracefully on %s", ln.Addr().String()))
+				zap.L().Info("Accept loop shut down gracefully", zap.String("address", ln.Addr().String()))
 				return
 			}
-			zap.L().Error(fmt.Sprintf("failed to accept connection: %v", err))
+			zap.L().Error("Failed to accept connection", zap.Error(err))
 			continue
 		}
 		s.wg.Add(1)
@@ -186,193 +194,136 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 	s.connsMux.Unlock()
 
 	defer func() {
-		// Cleanup after handler returns
 		s.connsMux.Lock()
 		delete(s.activeConns, rawConn)
 		s.connsMux.Unlock()
-		rawConn.Close()
 		s.wg.Done()
 	}()
 
-	zap.L().Info(fmt.Sprintf("New connection from %s", rawConn.RemoteAddr().String()))
+	zap.L().Info("New connection", zap.String("remote_addr", rawConn.RemoteAddr().String()))
 
-	// Prepare timeout rule early so TLS detection (Peek) is also covered by the same timeout
+	// Use a single read deadline for initial data/handshake
 	timeoutRule := s.getTimeoutRule()
-
-	// Apply read deadline before peeking to detect TLS so that Peek won't block forever
 	if timeoutRule != nil {
 		if err := rawConn.SetReadDeadline(time.Now().Add(time.Duration(timeoutRule.Parameter.Timeout) * time.Second)); err != nil {
-			zap.L().Error(fmt.Sprintf("failed to set read deadline before TLS detection: %v", err))
+			zap.L().Error("Failed to set read deadline", zap.Error(err), zap.String("remote_addr", rawConn.RemoteAddr().String()))
 			return
 		}
 	}
 
-	// Use a buffered reader to peek at the initial bytes without consuming them
-	br := bufio.NewReader(rawConn)
-	processingConn := rawConn // By default, use the raw connection
+	conn, data, err := s.peekAndRead(rawConn)
+	if err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() && timeoutRule != nil {
+			zap.L().Info("Connection timed out, applying timeout rule",
+				zap.String("rule_name", timeoutRule.Name),
+				zap.String("remote_addr", rawConn.RemoteAddr().String()))
+			s.executeHandler(rawConn, timeoutRule)
+			return
+		}
+		zap.L().Debug("Failed to peek or read from connection", zap.Error(err), zap.String("remote_addr", rawConn.RemoteAddr().String()))
+		return
+	}
 
-	// Peek at the first byte to check for TLS handshake
+	// Find and execute handler for matching rule
+	if s.findAndExecuteHandler(conn, data) {
+		return
+	}
+
+	zap.L().Info("No rule matched, closing connection", zap.String("remote_addr", conn.RemoteAddr().String()))
+}
+
+// peekAndRead peeks for TLS and reads the first data packet
+func (s *Server) peekAndRead(rawConn net.Conn) (net.Conn, []byte, error) {
+	br := bufio.NewReader(rawConn)
 	peekedBytes, err := br.Peek(1)
 	if err != nil && err != io.EOF {
-		// Handle timeout while peeking
-		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			if timeoutRule != nil {
-				// Clear the deadline before handing off to handler
-				_ = rawConn.SetReadDeadline(time.Time{})
-				zap.L().Info(fmt.Sprintf("Connection timed out during TLS detection, applying timeout rule: %s, Remote Addr: %s", timeoutRule.Name, rawConn.RemoteAddr().String()))
-				if h, ok := s.handlers[timeoutRule.Handler.Name]; ok {
-					h.Handle(rawConn)
-				} else {
-					zap.L().Error(fmt.Sprintf("Timeout handler not found for rule: %s, Handler: %s", timeoutRule.Name, timeoutRule.Handler.Name))
-				}
-				return
-			}
-		}
-		zap.L().Error(fmt.Sprintf("failed to peek at connection: %v", err))
-		return
+		return nil, nil, err
 	}
 
-	// Clear the deadline set for TLS detection; we'll re-apply for the first read below
-	if timeoutRule != nil {
-		_ = rawConn.SetReadDeadline(time.Time{})
-	}
-
-	// If the connection is closed immediately, peekedBytes will be empty.
-	isTLS := false
-	if len(peekedBytes) > 0 && s.tlsConfig != nil && peekedBytes[0] == TLSHandshakeByte {
-		isTLS = true
-	}
-
-	if isTLS {
-		zap.L().Debug(fmt.Sprintf("TLS connection detected. Remote Addr: %s", rawConn.RemoteAddr().String()))
-		// If it's a TLS handshake, wrap the connection in a TLS server
+	if s.tlsConfig != nil && len(peekedBytes) > 0 && peekedBytes[0] == TLSHandshakeByte {
+		zap.L().Debug("TLS connection detected", zap.String("remote_addr", rawConn.RemoteAddr().String()))
 		tlsConn := tls.Server(rawConn, s.tlsConfig)
-		// Set a deadline for the handshake to complete
-		handshakeTimeout := 10 * time.Second
-		if timeoutRule != nil {
-			handshakeTimeout = time.Duration(timeoutRule.Parameter.Timeout) * time.Second
-		}
-		if err := tlsConn.SetReadDeadline(time.Now().Add(handshakeTimeout)); err != nil {
-			zap.L().Error(fmt.Sprintf("failed to set handshake deadline: %v", err))
-			return
-		}
-
-		// Manually perform the handshake to get the connection state
 		if err := tlsConn.Handshake(); err != nil {
-			zap.L().Error(fmt.Sprintf("failed to complete TLS handshake: %v", err))
-			return
+			return nil, nil, fmt.Errorf("failed to complete TLS handshake: %v", err)
 		}
-
-		// Clear the deadline after handshake
-		if err := tlsConn.SetReadDeadline(time.Time{}); err != nil {
-			zap.L().Error(fmt.Sprintf("failed to clear handshake deadline: %v", err))
-			return
-		}
-
-		processingConn = tlsConn
-
-		// Match TLS rules immediately after handshake
-		for i, m := range s.matchers {
-			rule := s.config.Rules[i]
-			if rule.Type == "tls" {
-				if m.Match(processingConn, nil) {
-					zap.L().Info(fmt.Sprintf("Matched TLS rule: %s, Handler: %s, Remote Addr: %s", rule.Name, rule.Handler.Name, processingConn.RemoteAddr().String()))
-					h, ok := s.handlers[rule.Handler.Name]
-					if !ok {
-						zap.L().Error(fmt.Sprintf("handler not found for TLS rule: %s", rule.Name))
-						return
-					}
-					h.Handle(processingConn)
-					return
-				}
-			}
-		}
-
-		// If no TLS rule matched, continue to match on application data
-	} else {
-		zap.L().Debug(fmt.Sprintf("Plain TCP connection detected. Remote Addr: %s", rawConn.RemoteAddr().String()))
-		// For plain TCP, we use the buffered reader to ensure peeked data is included.
-		processingConn = &bufferedConn{br, rawConn}
+		_ = tlsConn.SetReadDeadline(time.Time{})
+		// For TLS connections, we've already done the handshake and the matcher will use the connection state.
+		// There's no need to read application data here as TLS matchers don't rely on it.
+		return tlsConn, nil, nil
 	}
 
+	// For non-TLS, read the first data packet from the buffered reader
+	conn := &bufferedConn{br, rawConn}
 	buf := make([]byte, 2048)
-	n := 0
-
-	// Handle timeout for the first data packet (or TLS handshake)
-	if timeoutRule != nil {
-		if err := processingConn.SetReadDeadline(time.Now().Add(time.Duration(timeoutRule.Parameter.Timeout) * time.Second)); err != nil {
-			zap.L().Error(fmt.Sprintf("failed to set read deadline: %v", err))
-			return
-		}
+	n, err := conn.Read(buf)
+	if err != nil && err != io.EOF {
+		return nil, nil, err
 	}
+	_ = rawConn.SetReadDeadline(time.Time{})
+	return conn, buf[:n], nil
+}
 
-	n, err = processingConn.Read(buf)
-
-	// Clear the deadline after the first read
-	if err := processingConn.SetReadDeadline(time.Time{}); err != nil {
-		zap.L().Error(fmt.Sprintf("failed to clear read deadline: %v", err))
-		return
-	}
-
-	if err != nil {
-		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			if timeoutRule != nil {
-				zap.L().Info(fmt.Sprintf("Connection timed out, applying timeout rule: %s, Remote Addr: %s", timeoutRule.Name, processingConn.RemoteAddr().String()))
-				h, ok := s.handlers[timeoutRule.Handler.Name]
-				if ok {
-					h.Handle(processingConn)
-				} else {
-					zap.L().Error(fmt.Sprintf("Timeout handler not found for rule: %s", timeoutRule.Name))
-				}
-			}
-			return
-		}
-
-		if isTLS {
-			zap.L().Debug(fmt.Sprintf("failed to complete TLS handshake or read first data: %v", err))
-		} else {
-			zap.L().Debug(fmt.Sprintf("failed to read from connection: %v", err))
-		}
-		return
-	}
-
-	data := buf[:n]
-
-	// Find a matching rule for the first data packet
+func (s *Server) findAndExecuteHandler(conn net.Conn, data []byte) bool {
 	for i, m := range s.matchers {
 		rule := s.config.Rules[i]
-		if rule.Type == "timeout" || rule.Type == "tls" {
+		if rule.Type == "timeout" {
 			continue
 		}
 
 		connIsTLS := false
-		if _, ok := processingConn.(*tls.Conn); ok {
+		if _, ok := conn.(*tls.Conn); ok {
 			connIsTLS = true
 		}
 
 		if rule.TLSRequired && !connIsTLS {
-			zap.L().Debug(fmt.Sprintf("Skipping rule because TLS is required but not detected. Rule: %s, Remote Addr: %s", rule.Name, processingConn.RemoteAddr().String()))
+			zap.L().Debug("Skipping rule because TLS is required but not detected",
+				zap.String("rule_name", rule.Name),
+				zap.String("remote_addr", conn.RemoteAddr().String()))
 			continue
 		}
 
-		if m.Match(processingConn, data) {
-			zap.L().Info(fmt.Sprintf("Matched rule: %s, Handler: %s, Remote Addr: %s", rule.Name, rule.Handler.Name, processingConn.RemoteAddr().String()))
-
-			h, ok := s.handlers[rule.Handler.Name]
-			if !ok {
-				zap.L().Error(fmt.Sprintf("handler not found for rule: %s", rule.Name))
-				return
+		// TLS rules are matched immediately after handshake. Data is nil for those.
+		if rule.Type == "tls" && connIsTLS {
+			if m.Match(conn, nil) {
+				zap.L().Info("Matched TLS rule",
+					zap.String("rule_name", rule.Name),
+					zap.String("handler_name", rule.Handler.Name),
+					zap.String("remote_addr", conn.RemoteAddr().String()))
+				s.executeHandler(conn, &rule)
+				return true
 			}
-
-			// Prepend the first data packet back to the connection so the handler can read it
-			finalConn := &prefixedConn{processingConn, data}
-			h.Handle(finalConn)
-			return
-		} else {
-			zap.L().Debug(fmt.Sprintf("Rule did not match. Rule: %s, Remote Addr: %s", rule.Name, processingConn.RemoteAddr().String()))
+			continue
 		}
+
+		// All other rules are matched on data
+		if m.Match(conn, data) {
+			zap.L().Info("Matched rule",
+				zap.String("rule_name", rule.Name),
+				zap.String("handler_name", rule.Handler.Name),
+				zap.String("remote_addr", conn.RemoteAddr().String()))
+
+			// Prepend the first data packet back to the connection
+			finalConn := &prefixedConn{conn, data}
+			s.executeHandler(finalConn, &rule)
+			return true
+		}
+		zap.L().Debug("Rule did not match",
+			zap.String("rule_name", rule.Name),
+			zap.String("remote_addr", conn.RemoteAddr().String()))
 	}
-	zap.L().Info(fmt.Sprintf("no rule matched, closing connection. Remote Addr: %s", processingConn.RemoteAddr().String()))
+	return false
+}
+
+func (s *Server) executeHandler(conn net.Conn, rule *config.Rule) {
+	h, ok := s.handlers[rule.Handler.Name]
+	if !ok {
+		zap.L().Error("Handler not found for rule",
+			zap.String("rule_name", rule.Name),
+			zap.String("handler_name", rule.Handler.Name))
+		conn.Close()
+		return
+	}
+	h.Handle(conn)
 }
 
 func (s *Server) getTimeoutRule() *config.Rule {
@@ -384,7 +335,6 @@ func (s *Server) getTimeoutRule() *config.Rule {
 	return nil
 }
 
-// prefixedConn is a net.Conn that prepends a buffer to the first read.
 type prefixedConn struct {
 	net.Conn
 	prefix []byte
@@ -399,8 +349,6 @@ func (c *prefixedConn) Read(b []byte) (int, error) {
 	return c.Conn.Read(b)
 }
 
-// bufferedConn wraps a bufio.Reader and a net.Conn to act as a single net.Conn
-// This is needed because bufio.Reader itself doesn't satisfy the net.Conn interface (missing SetDeadline etc.)
 type bufferedConn struct {
 	r *bufio.Reader
 	net.Conn

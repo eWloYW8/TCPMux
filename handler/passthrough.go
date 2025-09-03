@@ -2,11 +2,11 @@ package handler
 
 import (
 	"crypto/tls"
-	"fmt"
+	"errors"
 	"io"
 	"net"
-	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/eWloYW8/TCPMux/config"
 	"go.uber.org/zap"
@@ -21,7 +21,9 @@ func NewPassthroughHandler(config *config.HandlerConfig) *PassthroughHandler {
 }
 
 func (h *PassthroughHandler) Handle(conn net.Conn) {
-	zap.L().Info(fmt.Sprintf("Handling connection with passthrough handler. Backend: %s, Remote Addr: %s", h.config.Backend, conn.RemoteAddr().String()))
+	zap.L().Info("Handling connection with passthrough handler",
+		zap.String("backend", h.config.Backend),
+		zap.String("remote_addr", conn.RemoteAddr().String()))
 
 	defer conn.Close()
 
@@ -33,27 +35,28 @@ func (h *PassthroughHandler) Handle(conn net.Conn) {
 			InsecureSkipVerify: h.config.TLS.InsecureSkipVerify,
 		}
 
-		var clientSNI string
-		var clientALPN string
+		// Check if the original connection was already a TLS connection
 		if tlsConn, ok := conn.(*tls.Conn); ok {
 			connState := tlsConn.ConnectionState()
-			clientSNI = connState.ServerName
-			clientALPN = connState.NegotiatedProtocol
-		}
+			if h.config.TLS.SNI != "" {
+				tlsConfig.ServerName = h.config.TLS.SNI
+			} else if connState.ServerName != "" {
+				tlsConfig.ServerName = connState.ServerName
+			}
 
-		if h.config.TLS.SNI != "" {
+			if len(h.config.TLS.ALPN) > 0 {
+				tlsConfig.NextProtos = h.config.TLS.ALPN
+			} else if connState.NegotiatedProtocol != "" {
+				tlsConfig.NextProtos = []string{connState.NegotiatedProtocol}
+			}
+		} else if h.config.TLS.SNI != "" {
 			tlsConfig.ServerName = h.config.TLS.SNI
-		} else if clientSNI != "" {
-			tlsConfig.ServerName = clientSNI
 		}
 
-		if len(h.config.TLS.ALPN) > 0 {
-			tlsConfig.NextProtos = h.config.TLS.ALPN
-		} else if clientALPN != "" {
-			tlsConfig.NextProtos = []string{clientALPN}
-		}
-
-		zap.L().Debug(fmt.Sprintf("Connecting to backend with TLS. Backend: %s, SNI: %s, ALPN: %v", h.config.Backend, tlsConfig.ServerName, tlsConfig.NextProtos))
+		zap.L().Debug("Connecting to backend with TLS",
+			zap.String("backend", h.config.Backend),
+			zap.String("sni", tlsConfig.ServerName),
+			zap.Strings("alpn", tlsConfig.NextProtos))
 
 		backendConn, err = tls.Dial("tcp", h.config.Backend, tlsConfig)
 	} else {
@@ -61,10 +64,15 @@ func (h *PassthroughHandler) Handle(conn net.Conn) {
 	}
 
 	if err != nil {
-		zap.L().Error(fmt.Sprintf("Failed to connect to backend. Backend: %s, Remote Addr: %s, Error: %v", h.config.Backend, conn.RemoteAddr().String(), err))
+		zap.L().Error("Failed to connect to backend",
+			zap.String("backend", h.config.Backend),
+			zap.String("remote_addr", conn.RemoteAddr().String()),
+			zap.Error(err))
 		return
 	}
-	zap.L().Info(fmt.Sprintf("Successfully connected to backend. Backend: %s, Remote Addr: %s", h.config.Backend, conn.RemoteAddr().String()))
+	zap.L().Info("Successfully connected to backend",
+		zap.String("backend", h.config.Backend),
+		zap.String("remote_addr", conn.RemoteAddr().String()))
 
 	closeOnce := sync.Once{}
 	closeConns := func() {
@@ -82,7 +90,7 @@ func (h *PassthroughHandler) Handle(conn net.Conn) {
 		defer closeConns()
 		if _, err := io.Copy(backendConn, conn); err != nil {
 			if !isIgnorableError(err) {
-				zap.L().Error(fmt.Sprintf("Error copying data from client to backend: %v", err))
+				zap.L().Error("Error copying data from client to backend", zap.Error(err))
 			}
 		}
 	}()
@@ -92,23 +100,29 @@ func (h *PassthroughHandler) Handle(conn net.Conn) {
 		defer closeConns()
 		if _, err := io.Copy(conn, backendConn); err != nil {
 			if !isIgnorableError(err) {
-				zap.L().Error(fmt.Sprintf("Error copying data from backend to client: %v", err))
+				zap.L().Error("Error copying data from backend to client", zap.Error(err))
 			}
 		}
 	}()
 
 	wg.Wait()
-	zap.L().Info(fmt.Sprintf("Connection closed. Remote Addr: %s, Backend: %s", conn.RemoteAddr().String(), h.config.Backend))
+	zap.L().Info("Connection closed",
+		zap.String("remote_addr", conn.RemoteAddr().String()),
+		zap.String("backend", h.config.Backend))
 }
 
 func isIgnorableError(err error) bool {
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		return true
 	}
 
-	if strings.Contains(err.Error(), "connection reset by peer") ||
-		strings.Contains(err.Error(), "forcibly closed by the remote host") ||
-		strings.Contains(err.Error(), "use of closed network connection") {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		if opErr.Op == "read" && errors.Is(opErr.Err, syscall.ECONNRESET) {
+			return true
+		}
+	}
+	if errors.Is(err, syscall.WSAECONNRESET) {
 		return true
 	}
 	return false

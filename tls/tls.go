@@ -27,7 +27,7 @@ func NewTLSConfig(cfg *config.TLSConfig) (*tls.Config, error) {
 		} else {
 			certificates[sniCfg.SNI] = &cert
 		}
-		zap.L().Info(fmt.Sprintf("Successfully loaded TLS certificate for SNI: %s", sniCfg.SNI))
+		zap.L().Info("Successfully loaded TLS certificate", zap.String("sni", sniCfg.SNI))
 	}
 
 	tlsConfig := &tls.Config{
@@ -40,7 +40,7 @@ func NewTLSConfig(cfg *config.TLSConfig) (*tls.Config, error) {
 			if defaultCert != nil {
 				return defaultCert, nil
 			}
-
+			zap.L().Warn("No certificate found for SNI", zap.String("sni", hello.ServerName))
 			return nil, fmt.Errorf("no certificate found for SNI: %s", hello.ServerName)
 		},
 	}
