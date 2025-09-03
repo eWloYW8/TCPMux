@@ -14,6 +14,8 @@ import (
 	"go.uber.org/zap"
 )
 
+var Version = "dev-build"
+
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to config file")
 	flag.Parse()
