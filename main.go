@@ -18,6 +18,8 @@ func main() {
 	configPath := flag.String("config", "config.yaml", "path to config file")
 	flag.Parse()
 
+	log.Println("Starting TCPMux server...")
+
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
@@ -27,6 +29,8 @@ func main() {
 		log.Fatalf("failed to initialize logger: %v", err)
 	}
 	defer zap.L().Sync()
+
+	zap.L().Info("Logger initialized successfully")
 
 	s, err := server.NewServer(cfg)
 	if err != nil {
@@ -43,6 +47,6 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	zap.L().Info("shutting down server...")
 	s.Stop()
+	zap.L().Info("server shutdown complete.")
 }

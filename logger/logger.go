@@ -15,8 +15,10 @@ func InitLogger(cfg config.LoggingConfig) error {
 		return err
 	}
 
-	encoderConfig := zap.NewProductionEncoderConfig()
-	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	// 使用开发环境配置，它更具可读性并支持颜色
+	encoderConfig := zap.NewDevelopmentEncoderConfig()
+	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder        // 保持时间戳为 ISO 8601
+	encoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder // 启用彩色日志级别
 
 	cores := []zapcore.Core{}
 
@@ -34,7 +36,7 @@ func InitLogger(cfg config.LoggingConfig) error {
 			return err
 		}
 		cores = append(cores, zapcore.NewCore(
-			zapcore.NewJSONEncoder(encoderConfig),
+			zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
 			fileSyncer,
 			logLevel,
 		))
