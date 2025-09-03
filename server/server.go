@@ -97,6 +97,8 @@ func (s *Server) initMatchers() error {
 			if err != nil {
 				return err
 			}
+		case "tls":
+			m = matcher.NewTLSMatcher(rule)
 		case "default":
 			m = matcher.NewDefaultMatcher()
 		case "timeout":
@@ -246,7 +248,6 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 		// If it's a TLS handshake, wrap the connection in a TLS server
 		tlsConn := tls.Server(rawConn, s.tlsConfig)
 		// Set a deadline for the handshake to complete
-		// Use timeout rule value if provided; fallback to 10s otherwise
 		handshakeTimeout := 10 * time.Second
 		if timeoutRule != nil {
 			handshakeTimeout = time.Duration(timeoutRule.Parameter.Timeout) * time.Second
@@ -270,15 +271,31 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 
 		processingConn = tlsConn
 
+		// Match TLS rules immediately after handshake
+		for i, m := range s.matchers {
+			rule := s.config.Rules[i]
+			if rule.Type == "tls" {
+				if m.Match(processingConn, nil) {
+					zap.L().Info(fmt.Sprintf("Matched TLS rule: %s, Handler: %s, Remote Addr: %s", rule.Name, rule.Handler.Name, processingConn.RemoteAddr().String()))
+					h, ok := s.handlers[rule.Handler.Name]
+					if !ok {
+						zap.L().Error(fmt.Sprintf("handler not found for TLS rule: %s", rule.Name))
+						return
+					}
+					h.Handle(processingConn)
+					return
+				}
+			}
+		}
+
+		// If no TLS rule matched, continue to match on application data
 	} else {
 		zap.L().Debug(fmt.Sprintf("Plain TCP connection detected. Remote Addr: %s", rawConn.RemoteAddr().String()))
-		// For plain TCP, we use the buffered reader which has the peeked data.
-		// We'll treat the buffered reader as the connection going forward to ensure
-		// the peeked byte is included in the first read.
+		// For plain TCP, we use the buffered reader to ensure peeked data is included.
 		processingConn = &bufferedConn{br, rawConn}
 	}
 
-	buf := make([]byte, 2048) // Increased buffer size for TLS records
+	buf := make([]byte, 2048)
 	n := 0
 
 	// Handle timeout for the first data packet (or TLS handshake)
@@ -289,8 +306,6 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 		}
 	}
 
-	// This read will either get the first plain TCP packet or
-	// trigger the TLS handshake and then read the first decrypted application data packet.
 	n, err = processingConn.Read(buf)
 
 	// Clear the deadline after the first read
@@ -300,13 +315,11 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 	}
 
 	if err != nil {
-		// Handle timeout error specifically
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 			if timeoutRule != nil {
 				zap.L().Info(fmt.Sprintf("Connection timed out, applying timeout rule: %s, Remote Addr: %s", timeoutRule.Name, processingConn.RemoteAddr().String()))
 				h, ok := s.handlers[timeoutRule.Handler.Name]
 				if ok {
-					// Don't prepend data, as none was received
 					h.Handle(processingConn)
 				} else {
 					zap.L().Error(fmt.Sprintf("Timeout handler not found for rule: %s", timeoutRule.Name))
@@ -315,7 +328,6 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 			return
 		}
 
-		// For TLS, handshake errors will appear here.
 		if isTLS {
 			zap.L().Debug(fmt.Sprintf("failed to complete TLS handshake or read first data: %v", err))
 		} else {
@@ -329,17 +341,15 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 	// Find a matching rule for the first data packet
 	for i, m := range s.matchers {
 		rule := s.config.Rules[i]
-		if rule.Type == "timeout" { // Don't match timeout rule here
+		if rule.Type == "timeout" || rule.Type == "tls" {
 			continue
 		}
 
-		// For TLS required rules, check if the connection was actually a TLS one.
 		connIsTLS := false
 		if _, ok := processingConn.(*tls.Conn); ok {
 			connIsTLS = true
 		}
 
-		// The original matcher interface doesn't know about TLS. We add the check here.
 		if rule.TLSRequired && !connIsTLS {
 			zap.L().Debug(fmt.Sprintf("Skipping rule because TLS is required but not detected. Rule: %s, Remote Addr: %s", rule.Name, processingConn.RemoteAddr().String()))
 			continue

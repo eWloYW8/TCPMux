@@ -60,7 +60,7 @@ Each `Rule` contains a **matcher** and a **handler**.
 | Field | Type | Description |
 | :--- | :--- | :--- |
 | `name` | `string` | A unique name for the rule. |
-| `type` | `string` | The matcher type: `substring`, `regex`, `timeout`, or `default`. |
+| `type` | `string` | The matcher type: `substring`, `regex`, `tls`, `timeout`, or `default`. |
 | `tls_required` | `bool` | Whether this rule should only match TLS connections. If `true`, non-TLS connections will skip this rule. |
 | `parameter` | `MatcherParameter` | The parameters required by the matcher. |
 | `handler` | `HandlerConfig` | The handler configuration for a successful match. |
@@ -73,6 +73,8 @@ Each `Rule` contains a **matcher** and a **handler**.
 | `value` | `string` | `substring` | The substring to match against. |
 | `pattern` | `string` | `regex` | The regular expression to match the data. |
 | `timeout` | `int` | `timeout` | The timeout in seconds to wait for the first data packet. |
+| `sni` | `string` | `tls` | The SNI hostname requested by the client. |
+| `alpn` | `[]string` | `tls` | A list of ALPN protocols requested by the client. |
 
 **`HandlerConfig`**
 
@@ -135,6 +137,53 @@ This matcher type uses a regular expression to match the content of the data pac
         parameter:
           pattern: "^(GET|POST|PUT|DELETE) /"
         # ... handler config
+    ```
+
+#### `tls`
+
+This type of matcher inspects the **TLS handshake** to match connections based on **SNI** (Server Name Indication) and **ALPN** (Application-Layer Protocol Negotiation) values. It's the only matcher that works before any application data is sent.
+
+  * **Use Case:** Routing encrypted traffic to different backends based on the requested hostname (SNI) or protocol (ALPN).
+  * **Configuration Parameters:**
+      * `type: "tls"`: Specifies the matcher type.
+      * `parameter.sni`: The SNI hostname to match against. Use an empty string to match any SNI.
+      * `parameter.alpn`: A list of ALPN protocols to match against.
+  * **Note:** This matcher type **must** be used with `tls_required: true`. If no `sni` or `alpn` is specified, it will match any valid TLS handshake.
+  * **Example:**
+    ```yaml
+    rules:
+      - name: "website-https-rule"
+        type: "tls"
+        tls_required: true
+        parameter:
+          sni: "www.example.com"
+          alpn: ["h2", "http/1.1"]
+        handler:
+          name: "website-handler"
+          type: "passthrough"
+          backend: "localhost:4430"
+          tls:
+            enabled: true
+            insecure_skip_verify: false
+            sni: "www.example.com"
+            alpn: ["h2"]
+          timeout: 60
+
+      - name: "api-https-rule"
+        type: "tls"
+        tls_required: true
+        parameter:
+          sni: "api.example.com"
+        handler:
+          name: "api-handler"
+          type: "passthrough"
+          backend: "localhost:4444"
+          tls:
+            enabled: true
+            insecure_skip_verify: false
+            sni: "api.example.com"
+            alpn: ["http/1.1"]
+          timeout: 60
     ```
 
 #### `timeout`

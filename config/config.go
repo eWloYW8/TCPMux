@@ -25,10 +25,12 @@ type SNIConfig struct {
 }
 
 type MatcherParameter struct {
-	Offset  int    `yaml:"offset"`
-	Value   string `yaml:"value"`
-	Pattern string `yaml:"pattern"`
-	Timeout int    `yaml:"timeout"`
+	Offset  int      `yaml:"offset"`
+	Value   string   `yaml:"value"`
+	Pattern string   `yaml:"pattern"`
+	Timeout int      `yaml:"timeout"`
+	SNI     string   `yaml:"sni"`
+	ALPN    []string `yaml:"alpn"`
 }
 
 type Rule struct {
