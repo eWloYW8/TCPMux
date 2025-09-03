@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/eWloYW8/TCPMux/config"
+	"go.uber.org/zap"
 )
 
 func NewTLSConfig(cfg *config.TLSConfig) (*tls.Config, error) {
@@ -12,31 +13,32 @@ func NewTLSConfig(cfg *config.TLSConfig) (*tls.Config, error) {
 		return nil, nil
 	}
 
+	certificates := make(map[string]*tls.Certificate)
+	var defaultCert *tls.Certificate
+
+	for _, sniCfg := range cfg.Config {
+		cert, err := tls.LoadX509KeyPair(sniCfg.Cert, sniCfg.Key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load key pair for SNI %s: %v", sniCfg.SNI, err)
+		}
+
+		if sniCfg.SNI == "*" {
+			defaultCert = &cert
+		} else {
+			certificates[sniCfg.SNI] = &cert
+		}
+		zap.L().Info(fmt.Sprintf("Successfully loaded TLS certificate for SNI: %s", sniCfg.SNI))
+	}
+
 	tlsConfig := &tls.Config{
-		Certificates: make([]tls.Certificate, 0, len(cfg.Config)),
+		Certificates: nil,
 		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			for _, sniCfg := range cfg.Config {
-				if sniCfg.SNI == "*" {
-					continue
-				}
-				if hello.ServerName == sniCfg.SNI {
-					cert, err := tls.LoadX509KeyPair(sniCfg.Cert, sniCfg.Key)
-					if err != nil {
-						return nil, err
-					}
-					return &cert, nil
-				}
+			if cert, ok := certificates[hello.ServerName]; ok {
+				return cert, nil
 			}
 
-			// Default cert
-			for _, sniCfg := range cfg.Config {
-				if sniCfg.SNI == "*" {
-					cert, err := tls.LoadX509KeyPair(sniCfg.Cert, sniCfg.Key)
-					if err != nil {
-						return nil, err
-					}
-					return &cert, nil
-				}
+			if defaultCert != nil {
+				return defaultCert, nil
 			}
 
 			return nil, fmt.Errorf("no certificate found for SNI: %s", hello.ServerName)
