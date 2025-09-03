@@ -3,7 +3,7 @@ package logger
 import (
 	"os"
 
-	"github.com/eWloYW8/TCPMux/pkg/config"
+	"github.com/eWloYW8/TCPMux/config"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"

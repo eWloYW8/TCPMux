@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"net"
 
-	"github.com/eWloYW8/TCPMux/pkg/config"
+	"github.com/eWloYW8/TCPMux/config"
 )
 
 type SubstringMatcher struct {

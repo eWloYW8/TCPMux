@@ -7,9 +7,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/eWloYW8/TCPMux/pkg/config"
-	"github.com/eWloYW8/TCPMux/pkg/logger"
-	"github.com/eWloYW8/TCPMux/pkg/server"
+	"github.com/eWloYW8/TCPMux/config"
+	"github.com/eWloYW8/TCPMux/logger"
+	"github.com/eWloYW8/TCPMux/server"
 
 	"go.uber.org/zap"
 )

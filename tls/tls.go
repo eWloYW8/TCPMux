@@ -4,7 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 
-	"github.com/eWloYW8/TCPMux/pkg/config"
+	"github.com/eWloYW8/TCPMux/config"
 )
 
 func NewTLSConfig(cfg *config.TLSConfig) (*tls.Config, error) {

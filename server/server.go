@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eWloYW8/TCPMux/pkg/config"
-	"github.com/eWloYW8/TCPMux/pkg/handler"
-	"github.com/eWloYW8/TCPMux/pkg/matcher"
-	tlspkg "github.com/eWloYW8/TCPMux/pkg/tls"
+	"github.com/eWloYW8/TCPMux/config"
+	"github.com/eWloYW8/TCPMux/handler"
+	"github.com/eWloYW8/TCPMux/matcher"
+	tlspkg "github.com/eWloYW8/TCPMux/tls"
 
 	"go.uber.org/zap"
 )

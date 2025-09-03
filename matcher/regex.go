@@ -3,7 +3,7 @@ package matcher
 import (
 	"net"
 
-	"github.com/eWloYW8/TCPMux/pkg/config"
+	"github.com/eWloYW8/TCPMux/config"
 
 	"github.com/dlclark/regexp2"
 	"go.uber.org/zap"
