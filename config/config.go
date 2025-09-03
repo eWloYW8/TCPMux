@@ -25,20 +25,20 @@ type SNIConfig struct {
 	Key  string `yaml:"key"`
 }
 
+type MatcherParameter struct {
+	Offset  int    `yaml:"offset"`
+	Value   string `yaml:"value"`
+	Pattern string `yaml:"pattern"`
+	Timeout int    `yaml:"timeout"`
+}
+
 type Rule struct {
 	Name        string           `yaml:"name"`
 	Type        string           `yaml:"type"`
-	Offset      int              `yaml:"offset"`
-	Value       string           `yaml:"value"`
 	TLSRequired bool             `yaml:"tls_required"`
-	Pattern     string           `yaml:"pattern"`
 	Script      string           `yaml:"script"`
-	Parameter   TimeoutParameter `yaml:"parameter"`
+	Parameter   MatcherParameter `yaml:"parameter"`
 	Handler     HandlerConfig    `yaml:"handler"`
-}
-
-type TimeoutParameter struct {
-	Timeout int `yaml:"timeout"`
 }
 
 type HandlerConfig struct {
@@ -47,6 +47,7 @@ type HandlerConfig struct {
 	Backend string `yaml:"backend"`
 	TLS     bool   `yaml:"tls"`
 	Path    string `yaml:"path"`
+	Timeout int    `yaml:"timeout"`
 }
 
 type LoggingConfig struct {

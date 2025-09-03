@@ -1,8 +1,7 @@
-// FILE: matcher/regex.go
 package matcher
 
 import (
-	"fmt" // 新增
+	"fmt"
 	"net"
 
 	"github.com/eWloYW8/TCPMux/config"
@@ -17,7 +16,7 @@ type RegexMatcher struct {
 }
 
 func NewRegexMatcher(rule *config.Rule) (*RegexMatcher, error) {
-	re, err := regexp2.Compile(rule.Pattern, 0)
+	re, err := regexp2.Compile(rule.Parameter.Pattern, 0)
 	if err != nil {
 		return nil, err
 	}

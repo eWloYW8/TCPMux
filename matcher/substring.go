@@ -16,8 +16,8 @@ func NewSubstringMatcher(rule *config.Rule) *SubstringMatcher {
 }
 
 func (m *SubstringMatcher) Match(conn net.Conn, data []byte) bool {
-	if m.rule.Offset < 0 || m.rule.Offset > len(data) {
+	if m.rule.Parameter.Offset < 0 || m.rule.Parameter.Offset > len(data) {
 		return false
 	}
-	return bytes.Contains(data[m.rule.Offset:], []byte(m.rule.Value))
+	return bytes.Contains(data[m.rule.Parameter.Offset:], []byte(m.rule.Parameter.Value))
 }

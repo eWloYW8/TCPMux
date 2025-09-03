@@ -167,7 +167,6 @@ func (s *Server) acceptLoop(ln net.Listener) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			// Check if listener was closed by Stop()
 			if opErr, ok := err.(*net.OpError); ok && opErr.Op == "accept" && opErr.Err.Error() == "use of closed network connection" {
 				zap.L().Info(fmt.Sprintf("Accept loop shut down gracefully on %s", ln.Addr().String()))
 				return
@@ -193,6 +192,9 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 		rawConn.Close()
 		s.wg.Done()
 	}()
+
+	zap.L().Info(fmt.Sprintf("New connection from %s", rawConn.RemoteAddr().String()))
+
 	// Prepare timeout rule early so TLS detection (Peek) is also covered by the same timeout
 	timeoutRule := s.getTimeoutRule()
 
