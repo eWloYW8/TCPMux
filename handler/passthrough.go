@@ -1,4 +1,3 @@
-// FILE: handler/passthrough.go
 package handler
 
 import (
