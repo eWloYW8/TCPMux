@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,6 +17,8 @@ import (
 var Version = "dev-build"
 
 func main() {
+	fmt.Fprintf(os.Stderr, "TCPMux %s - A TCP traffic multiplexer written in Go\n", Version)
+
 	configPath := flag.String("config", "config.yaml", "path to config file")
 	flag.Parse()
 
