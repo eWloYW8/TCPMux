@@ -2,7 +2,8 @@
 
 The `timeout` matcher is unique as it doesn't match based on data. It is triggered if no other rule has matched a connection within a specified timeout period.
 
-**Note**: You can only have one `timeout` rule.
+!!! note
+    You can only have one `timeout` rule.
 
 ### Configuration
 

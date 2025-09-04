@@ -2,7 +2,8 @@
 
 The `tls` matcher matches against the Server Name Indication (SNI) and Application-Layer Protocol Negotiation (ALPN) values presented during the TLS handshake.
 
-**Note**: This matcher requires `tls.enabled: true` in your main configuration.
+!!! note
+    This matcher requires `tls.enabled: true` in your main configuration.
 
 ### Configuration
 
