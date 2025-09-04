@@ -68,7 +68,6 @@ func (s *Server) initHandlers() error {
 		if _, ok := s.handlers[rule.Handler.Name]; ok {
 			continue
 		}
-		// Use the new centralized handler creation function with parameter
 		h, err := handler.NewHandler(rule.Handler.Type, rule.Handler.Parameter)
 		if err != nil {
 			return fmt.Errorf("failed to create handler %s: %v", rule.Handler.Name, err)
@@ -238,7 +237,7 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 	zap.L().Info("No rule matched, closing connection", zap.String("remote_addr", conn.RemoteAddr().String()))
 }
 
-// peekAndRead peeks for TLS and returns a new connection for subsequent reads
+// peeks for TLS and returns a new connection for subsequent reads
 func (s *Server) peekAndRead(rawConn net.Conn) (net.Conn, []byte, error) {
 	br := bufio.NewReader(rawConn)
 	peekedBytes, err := br.Peek(1)

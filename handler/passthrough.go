@@ -13,14 +13,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// PassthroughHandlerConfig defines the configuration for the passthrough handler
 type PassthroughHandlerConfig struct {
 	Backend string            `yaml:"backend"`
 	TLS     *BackendTLSConfig `yaml:"tls"`
 	Timeout int               `yaml:"timeout"`
 }
 
-// BackendTLSConfig is moved to handler to be private to the handler package
 type BackendTLSConfig struct {
 	Enabled            bool     `yaml:"enabled"`
 	InsecureSkipVerify bool     `yaml:"insecure_skip_verify"`
