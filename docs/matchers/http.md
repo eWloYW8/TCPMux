@@ -1,4 +1,4 @@
-# HTTP Matcher
+# HTTP 1.1 Matcher
 
 The `http` matcher inspects the initial bytes of a connection to parse and match against an HTTP request's components.
 

@@ -49,6 +49,7 @@ nav:
     - Substring: 'matchers/substring.md'
     - TLS: 'matchers/tls.md'
     - "HTTP 1.1": 'matchers/http.md'
+    - SSH: 'matchers/ssh.md'
     - Timeout: 'matchers/timeout.md'
   - Handlers:
     - Overview: 'handlers/index.md'

@@ -11,4 +11,5 @@ The following matchers are available:
 - [Substring](substring.md)
 - [TLS](tls.md)
 - [HTTP 1.1](http.md)
+- [SSH](ssh.md)
 - [Timeout](timeout.md)
