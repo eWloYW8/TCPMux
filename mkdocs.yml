@@ -57,6 +57,10 @@ nav:
     - Overview: 'handlers/index.md'
     - Passthrough: 'handlers/passthrough.md'
     - Reverse Proxy: 'handlers/reverse_proxy.md'
+  - Contribution:
+    - Architecture: 'contribution/index.md'
+    - Matcher: 'contribution/matcher.md'
+    - Handler: 'contribution/handler.md'
 
 markdown_extensions:
     - pymdownx.highlight:

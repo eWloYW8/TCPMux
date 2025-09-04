@@ -19,6 +19,7 @@ This will create an executable named `TCPMux` (or `TCPMux.exe` on Windows) in yo
 
 or **[Releases](https://github.com/eWloYW8/TCPMux/releases)**
 
-## Docs
+## Documentation
 
-[TCPMux](https://ewloyw8.github.io/TCPMux/)
+- **[Full Document](https://ewloyw8.github.io/TCPMux/)**
+- **[Contribution Guide](https://ewloyw8.github.io/TCPMux/contribution)**
