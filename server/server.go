@@ -295,12 +295,12 @@ func (s *Server) peekAndRead(rawConn net.Conn) (net.Conn, []byte, error) {
 		if err := tlsConn.Handshake(); err != nil {
 			return nil, nil, fmt.Errorf("failed to complete TLS handshake: %v", err)
 		}
-		buf := make([]byte, 2048)
+		buf := make([]byte, 8192)
 		n, err := tlsConn.Read(buf)
 		return tlsConn, buf[:n], err
 	}
 	conn := &bufferedConn{br, rawConn}
-	buf := make([]byte, 2048)
+	buf := make([]byte, 8192)
 	n, err := conn.Read(buf)
 	return conn, buf[:n], err
 }
