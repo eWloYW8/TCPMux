@@ -34,12 +34,9 @@ type Rule struct {
 }
 
 type HandlerConfig struct {
-	Name    string            `yaml:"name"`
-	Type    string            `yaml:"type"`
-	Backend string            `yaml:"backend"`
-	TLS     *BackendTLSConfig `yaml:"tls"`
-	Path    string            `yaml:"path"`
-	Timeout int               `yaml:"timeout"`
+	Name      string    `yaml:"name"`
+	Type      string    `yaml:"type"`
+	Parameter yaml.Node `yaml:"parameter"`
 }
 
 type BackendTLSConfig struct {

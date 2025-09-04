@@ -9,23 +9,42 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/eWloYW8/TCPMux/config"
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 )
+
+// PassthroughHandlerConfig defines the configuration for the passthrough handler
+type PassthroughHandlerConfig struct {
+	Backend string            `yaml:"backend"`
+	TLS     *BackendTLSConfig `yaml:"tls"`
+	Timeout int               `yaml:"timeout"`
+}
+
+// BackendTLSConfig is moved to handler to be private to the handler package
+type BackendTLSConfig struct {
+	Enabled            bool     `yaml:"enabled"`
+	InsecureSkipVerify bool     `yaml:"insecure_skip_verify"`
+	SNI                string   `yaml:"sni"`
+	ALPN               []string `yaml:"alpn"`
+}
 
 func init() {
 	Register("passthrough", newPassthroughHandler)
 }
 
 type PassthroughHandler struct {
-	config *config.HandlerConfig
+	config *PassthroughHandlerConfig
 }
 
-func newPassthroughHandler(config *config.HandlerConfig) (Handler, error) {
-	return NewPassthroughHandler(config), nil
+func newPassthroughHandler(parameter yaml.Node) (Handler, error) {
+	cfg := &PassthroughHandlerConfig{}
+	if err := parameter.Decode(cfg); err != nil {
+		return nil, err
+	}
+	return NewPassthroughHandler(cfg), nil
 }
 
-func NewPassthroughHandler(config *config.HandlerConfig) *PassthroughHandler {
+func NewPassthroughHandler(config *PassthroughHandlerConfig) *PassthroughHandler {
 	return &PassthroughHandler{config: config}
 }
 

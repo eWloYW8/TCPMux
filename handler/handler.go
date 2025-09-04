@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/eWloYW8/TCPMux/config"
+	"gopkg.in/yaml.v3"
 )
 
 type Handler interface {
 	Handle(conn net.Conn)
 }
 
-type HandlerFactory func(*config.HandlerConfig) (Handler, error)
+type HandlerFactory func(yaml.Node) (Handler, error)
 
 var handlerRegistry = make(map[string]HandlerFactory)
 
@@ -22,10 +22,10 @@ func Register(name string, factory HandlerFactory) {
 	handlerRegistry[name] = factory
 }
 
-func NewHandler(handlerType string, cfg *config.HandlerConfig) (Handler, error) {
+func NewHandler(handlerType string, parameter yaml.Node) (Handler, error) {
 	factory, ok := handlerRegistry[handlerType]
 	if !ok {
 		return nil, fmt.Errorf("unknown handler type: %s", handlerType)
 	}
-	return factory(cfg)
+	return factory(parameter)
 }

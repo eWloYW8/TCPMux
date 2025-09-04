@@ -68,8 +68,8 @@ func (s *Server) initHandlers() error {
 		if _, ok := s.handlers[rule.Handler.Name]; ok {
 			continue
 		}
-		// 使用新的集中式处理程序创建函数
-		h, err := handler.NewHandler(rule.Handler.Type, &rule.Handler)
+		// Use the new centralized handler creation function with parameter
+		h, err := handler.NewHandler(rule.Handler.Type, rule.Handler.Parameter)
 		if err != nil {
 			return fmt.Errorf("failed to create handler %s: %v", rule.Handler.Name, err)
 		}
