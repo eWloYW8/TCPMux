@@ -48,10 +48,11 @@ nav:
     - Regex: 'matchers/regex.md'
     - Substring: 'matchers/substring.md'
     - TLS: 'matchers/tls.md'
-    - "HTTP 1.1": 'matchers/http.md'
+    - HTTP 1.1: 'matchers/http.md'
     - SSH: 'matchers/ssh.md'
-    - "IP CIDR": 'matchers/ip.md'
+    - IP CIDR: 'matchers/ip.md'
     - Timeout: 'matchers/timeout.md'
+    - Logic (AND/OR): 'matchers/logic.md'
   - Handlers:
     - Overview: 'handlers/index.md'
     - Passthrough: 'handlers/passthrough.md'

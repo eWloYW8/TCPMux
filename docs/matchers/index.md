@@ -14,3 +14,4 @@ The following matchers are available:
 - [SSH](ssh.md)
 - [IP CIDR](ip.md)
 - [Timeout](timeout.md)
+- [Logic (AND/OR)](logic.md)
