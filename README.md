@@ -4,6 +4,8 @@ A TCP traffic multiplexer written in Go.
 
 [![Build and Release](https://github.com/eWloYW8/TCPMux/actions/workflows/build.yml/badge.svg)](https://github.com/eWloYW8/TCPMux/actions/workflows/build.yml)
 
+[![Build and Deploy MkDocs](https://github.com/eWloYW8/TCPMux/actions/workflows/build_docs.yml/badge.svg)](https://github.com/eWloYW8/TCPMux/actions/workflows/build_docs.yml)
+
 ## Installation
 
 ```bash
