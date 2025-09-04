@@ -134,7 +134,8 @@ func isIgnorableError(err error) bool {
 
 	var opErr *net.OpError
 	if errors.As(err, &opErr) {
-		if strings.Contains(opErr.Err.Error(), "use of closed network connection") {
+		if strings.Contains(opErr.Err.Error(), "use of closed network connection") ||
+			strings.Contains(opErr.Err.Error(), "closed by the remote host") {
 			return true
 		}
 	}

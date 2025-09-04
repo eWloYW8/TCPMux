@@ -15,7 +15,6 @@ type RegexMatcher struct {
 	re *regexp2.Regexp
 }
 
-// NewRegexMatcher 接收 RegexMatcherConfig 类型
 func NewRegexMatcher(cfg *RegexMatcherConfig) (*RegexMatcher, error) {
 	re, err := regexp2.Compile(cfg.Pattern, 0)
 	if err != nil {

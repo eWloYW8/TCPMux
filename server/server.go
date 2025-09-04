@@ -218,7 +218,6 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 
 	zap.L().Info("New connection", zap.String("remote_addr", rawConn.RemoteAddr().String()))
 
-	// 使用 goroutine 和 select 来手动处理超时
 	var timeout int
 	if s.timeoutRule != nil {
 		var cfg matcher.TimeoutMatcherConfig

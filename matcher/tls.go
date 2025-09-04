@@ -16,7 +16,6 @@ type TLSMatcher struct {
 	config *TLSMatcherConfig
 }
 
-// NewTLSMatcher 接收 TLSMatcherConfig 类型
 func NewTLSMatcher(cfg *TLSMatcherConfig) *TLSMatcher {
 	return &TLSMatcher{config: cfg}
 }
