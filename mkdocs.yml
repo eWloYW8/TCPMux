@@ -50,6 +50,7 @@ nav:
     - TLS: 'matchers/tls.md'
     - "HTTP 1.1": 'matchers/http.md'
     - SSH: 'matchers/ssh.md'
+    - "IP CIDR": 'matchers/ip.md'
     - Timeout: 'matchers/timeout.md'
   - Handlers:
     - Overview: 'handlers/index.md'

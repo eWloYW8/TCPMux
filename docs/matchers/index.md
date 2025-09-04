@@ -12,4 +12,5 @@ The following matchers are available:
 - [TLS](tls.md)
 - [HTTP 1.1](http.md)
 - [SSH](ssh.md)
+- [IP CIDR](ip.md)
 - [Timeout](timeout.md)
