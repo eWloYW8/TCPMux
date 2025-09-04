@@ -2,7 +2,10 @@ package matcher
 
 import (
 	"bytes"
+	"fmt"
 	"net"
+
+	"gopkg.in/yaml.v3"
 )
 
 type SubstringMatcherConfig struct {
@@ -12,6 +15,18 @@ type SubstringMatcherConfig struct {
 
 type SubstringMatcher struct {
 	config *SubstringMatcherConfig
+}
+
+func init() {
+	Register("substring", newSubstringMatcher)
+}
+
+func newSubstringMatcher(parameter yaml.Node) (Matcher, error) {
+	cfg := &SubstringMatcherConfig{}
+	if err := parameter.Decode(cfg); err != nil {
+		return nil, fmt.Errorf("failed to decode substring matcher config: %v", err)
+	}
+	return NewSubstringMatcher(cfg), nil
 }
 
 func NewSubstringMatcher(cfg *SubstringMatcherConfig) *SubstringMatcher {

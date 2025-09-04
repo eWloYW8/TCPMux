@@ -1,8 +1,20 @@
 package matcher
 
-import "net"
+import (
+	"net"
+
+	"gopkg.in/yaml.v3"
+)
 
 type DefaultMatcher struct{}
+
+func init() {
+	Register("default", newDefaultMatcher)
+}
+
+func newDefaultMatcher(parameter yaml.Node) (Matcher, error) {
+	return NewDefaultMatcher(), nil
+}
 
 func NewDefaultMatcher() *DefaultMatcher {
 	return &DefaultMatcher{}

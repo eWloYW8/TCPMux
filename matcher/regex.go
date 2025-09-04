@@ -1,10 +1,12 @@
 package matcher
 
 import (
+	"fmt"
 	"net"
 
 	"github.com/dlclark/regexp2"
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 )
 
 type RegexMatcherConfig struct {
@@ -13,6 +15,18 @@ type RegexMatcherConfig struct {
 
 type RegexMatcher struct {
 	re *regexp2.Regexp
+}
+
+func init() {
+	Register("regex", newRegexMatcher)
+}
+
+func newRegexMatcher(parameter yaml.Node) (Matcher, error) {
+	cfg := &RegexMatcherConfig{}
+	if err := parameter.Decode(cfg); err != nil {
+		return nil, fmt.Errorf("failed to decode regex matcher config: %v", err)
+	}
+	return NewRegexMatcher(cfg)
 }
 
 func NewRegexMatcher(cfg *RegexMatcherConfig) (*RegexMatcher, error) {

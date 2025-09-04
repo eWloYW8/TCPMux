@@ -2,9 +2,11 @@ package matcher
 
 import (
 	"crypto/tls"
+	"fmt"
 	"net"
 
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 )
 
 type TLSMatcherConfig struct {
@@ -14,6 +16,18 @@ type TLSMatcherConfig struct {
 
 type TLSMatcher struct {
 	config *TLSMatcherConfig
+}
+
+func init() {
+	Register("tls", newTLSMatcher)
+}
+
+func newTLSMatcher(parameter yaml.Node) (Matcher, error) {
+	cfg := &TLSMatcherConfig{}
+	if err := parameter.Decode(cfg); err != nil {
+		return nil, fmt.Errorf("failed to decode TLS matcher config: %v", err)
+	}
+	return NewTLSMatcher(cfg), nil
 }
 
 func NewTLSMatcher(cfg *TLSMatcherConfig) *TLSMatcher {

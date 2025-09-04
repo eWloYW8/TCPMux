@@ -21,14 +21,6 @@ const (
 	TLSHandshakeByte = 0x16
 )
 
-var handlerRegistry = make(map[string]func(*config.HandlerConfig) (handler.Handler, error))
-
-func init() {
-	handlerRegistry["passthrough"] = func(h *config.HandlerConfig) (handler.Handler, error) {
-		return handler.NewPassthroughHandler(h), nil
-	}
-}
-
 type Server struct {
 	config      *config.Config
 	listeners   []net.Listener
@@ -76,11 +68,8 @@ func (s *Server) initHandlers() error {
 		if _, ok := s.handlers[rule.Handler.Name]; ok {
 			continue
 		}
-		factory, ok := handlerRegistry[rule.Handler.Type]
-		if !ok {
-			return fmt.Errorf("unknown handler type: %s", rule.Handler.Type)
-		}
-		h, err := factory(&rule.Handler)
+		// 使用新的集中式处理程序创建函数
+		h, err := handler.NewHandler(rule.Handler.Type, &rule.Handler)
 		if err != nil {
 			return fmt.Errorf("failed to create handler %s: %v", rule.Handler.Name, err)
 		}
@@ -97,43 +86,13 @@ func (s *Server) initMatchers() error {
 	for i := range s.config.Rules {
 		rule := &s.config.Rules[i]
 
-		var m matcher.Matcher
-		var err error
-
-		switch rule.Type {
-		case "substring":
-			cfg := &matcher.SubstringMatcherConfig{}
-			if err = rule.Parameter.Decode(cfg); err != nil {
-				return fmt.Errorf("failed to decode substring matcher config for rule %s: %v", rule.Name, err)
-			}
-			m = matcher.NewSubstringMatcher(cfg)
-		case "regex":
-			cfg := &matcher.RegexMatcherConfig{}
-			if err = rule.Parameter.Decode(cfg); err != nil {
-				return fmt.Errorf("failed to decode regex matcher config for rule %s: %v", rule.Name, err)
-			}
-			m, err = matcher.NewRegexMatcher(cfg)
-		case "tls":
-			cfg := &matcher.TLSMatcherConfig{}
-			if err = rule.Parameter.Decode(cfg); err != nil {
-				return fmt.Errorf("failed to decode tls matcher config for rule %s: %v", rule.Name, err)
-			}
-			m = matcher.NewTLSMatcher(cfg)
-		case "default":
-			m = matcher.NewDefaultMatcher()
-		case "timeout":
-			cfg := &matcher.TimeoutMatcherConfig{}
-			if err = rule.Parameter.Decode(cfg); err != nil {
-				return fmt.Errorf("failed to decode timeout matcher config for rule %s: %v", rule.Name, err)
-			}
+		if rule.Type == "timeout" {
 			s.timeoutRule = rule
-			m = matcher.NewTimeoutMatcher(cfg)
-		default:
-			return fmt.Errorf("unknown matcher type: %s", rule.Type)
 		}
 
+		m, err := matcher.NewMatcher(rule.Type, rule.Parameter)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to create matcher for rule %s: %v", rule.Name, err)
 		}
 		s.matchers[i] = m
 
@@ -335,14 +294,12 @@ func (s *Server) findAndExecuteHandler(conn net.Conn, data []byte) bool {
 			continue
 		}
 
-		// All other rules are matched on data
 		if m.Match(conn, data) {
 			zap.L().Info("Matched rule",
 				zap.String("rule_name", rule.Name),
 				zap.String("handler_name", rule.Handler.Name),
 				zap.String("remote_addr", conn.RemoteAddr().String()))
 
-			// Prepend the first data packet back to the connection
 			finalConn := &prefixedConn{conn, data}
 			s.executeHandler(finalConn, &rule)
 			return true

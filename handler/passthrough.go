@@ -13,8 +13,16 @@ import (
 	"go.uber.org/zap"
 )
 
+func init() {
+	Register("passthrough", newPassthroughHandler)
+}
+
 type PassthroughHandler struct {
 	config *config.HandlerConfig
+}
+
+func newPassthroughHandler(config *config.HandlerConfig) (Handler, error) {
+	return NewPassthroughHandler(config), nil
 }
 
 func NewPassthroughHandler(config *config.HandlerConfig) *PassthroughHandler {
