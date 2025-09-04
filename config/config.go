@@ -28,7 +28,6 @@ type Rule struct {
 	Name        string        `yaml:"name"`
 	Type        string        `yaml:"type"`
 	TLSRequired bool          `yaml:"tls_required"`
-	Script      string        `yaml:"script"`
 	Parameter   yaml.Node     `yaml:"parameter"`
 	Handler     HandlerConfig `yaml:"handler"`
 }

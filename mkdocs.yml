@@ -1,0 +1,110 @@
+site_name: TCPMux
+site_description: TCPMux - A TCP traffic multiplexer written in Go
+
+repo_url: https://github.com/eWloYW8/TCPMux
+repo_name: TCPMux
+
+theme:
+  name: material
+  icon:
+    logo: material/server-outline
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: switch to light mode
+  language: zh
+  features:
+    - navigation.tabs
+    - navigation.top
+    - search.suggest
+    - content.code.copy
+    - content.action.edit
+
+nav:
+  - Home: 'index.md'
+  - Getting Started:
+    - Quick Start: 'getting_started/quickstart.md'
+    - Installation: 'getting_started/installation.md'
+  - Configuration:
+    - Overview: 'configuration/index.md'
+    - Listen: 'configuration/listen.md'
+    - Rules: 'configuration/rules.md'
+    - Logging: 'configuration/logging.md'
+    - TLS: 'configuration/tls.md'
+  - Matchers:
+    - Overview: 'matchers/index.md'
+    - Default: 'matchers/default.md'
+    - Regex: 'matchers/regex.md'
+    - Substring: 'matchers/substring.md'
+    - TLS: 'matchers/tls.md'
+    - Timeout: 'matchers/timeout.md'
+  - Handlers:
+    - Overview: 'handlers/index.md'
+    - Passthrough: 'handlers/passthrough.md'
+
+markdown_extensions:
+    - pymdownx.highlight:
+        anchor_linenums: true
+    - admonition
+    - def_list
+    - footnotes
+    - abbr
+    - pymdownx.caret
+    - pymdownx.mark
+    - pymdownx.tilde
+    - md_in_html
+    - pymdownx.arithmatex:
+          generic: true
+    - toc:
+          permalink: true
+          toc_depth: 3
+    - pymdownx.highlight:
+          anchor_linenums: true
+          linenums: true
+          use_pygments: true
+          pygments_lang_class: true
+          linenums_style: pymdownx-inline
+    - pymdownx.betterem
+    - pymdownx.caret
+    - pymdownx.mark
+    - pymdownx.tilde
+    - pymdownx.keys
+    - pymdownx.critic
+    - pymdownx.details
+    - pymdownx.inlinehilite
+    - pymdownx.snippets
+    - pymdownx.superfences
+    - pymdownx.magiclink
+    - pymdownx.smartsymbols
+    - pymdownx.snippets
+    - pymdownx.tasklist:
+          custom_checkbox: true
+    - attr_list
+    - pymdownx.emoji
+    - pymdownx.superfences
+    - pymdownx.tabbed:
+          alternate_style: true
+          combine_header_slug: true
+    - pymdownx.tasklist:
+          custom_checkbox: true
+          clickable_checkbox: true
+    - meta
+    - tables
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+      minify_js: true
+      minify_css: true
