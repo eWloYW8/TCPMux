@@ -38,13 +38,6 @@ type HandlerConfig struct {
 	Parameter yaml.Node `yaml:"parameter"`
 }
 
-type BackendTLSConfig struct {
-	Enabled            bool     `yaml:"enabled"`
-	InsecureSkipVerify bool     `yaml:"insecure_skip_verify"`
-	SNI                string   `yaml:"sni"`
-	ALPN               []string `yaml:"alpn"`
-}
-
 type LoggingConfig struct {
 	Level  string `yaml:"level"`
 	Stderr bool   `yaml:"stderr"`
