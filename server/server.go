@@ -28,18 +28,13 @@ type Server struct {
 	handlers    map[string]handler.Handler
 	tlsConfig   *tls.Config
 	timeoutRule *config.Rule
-	stopCh      chan struct{}
 	wg          sync.WaitGroup
-	connsMux    sync.Mutex
-	activeConns map[net.Conn]struct{}
 }
 
 func NewServer(cfg *config.Config) (*Server, error) {
 	s := &Server{
-		config:      cfg,
-		handlers:    make(map[string]handler.Handler),
-		stopCh:      make(chan struct{}),
-		activeConns: make(map[net.Conn]struct{}),
+		config:   cfg,
+		handlers: make(map[string]handler.Handler),
 	}
 
 	if err := s.initHandlers(); err != nil {
@@ -118,29 +113,11 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) Stop() {
-	zap.L().Info("Starting graceful shutdown...")
+	zap.L().Info("Starting shutdown...")
 	for _, ln := range s.listeners {
 		ln.Close()
 	}
 	zap.L().Info("Listeners closed. No new connections will be accepted.")
-	close(s.stopCh)
-	done := make(chan struct{})
-	go func() {
-		s.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		zap.L().Info("All active connections handled gracefully.")
-	case <-time.After(5 * time.Second):
-		zap.L().Warn("Graceful shutdown timed out. Forcibly closing remaining connections.")
-		s.connsMux.Lock()
-		for conn := range s.activeConns {
-			conn.Close()
-			zap.L().Warn("Forcibly closed connection", zap.String("remote_addr", conn.RemoteAddr().String()))
-		}
-		s.connsMux.Unlock()
-	}
 }
 
 func (s *Server) acceptLoop(ln net.Listener) {
@@ -151,7 +128,7 @@ func (s *Server) acceptLoop(ln net.Listener) {
 		conn, err := ln.Accept()
 		if err != nil {
 			if opErr, ok := err.(*net.OpError); ok && opErr.Op == "accept" && opErr.Err.Error() == "use of closed network connection" {
-				zap.L().Info("Accept loop shut down gracefully", zap.String("address", ln.Addr().String()))
+				zap.L().Info("Accept loop shut down", zap.String("address", ln.Addr().String()))
 				return
 			}
 			zap.L().Error("Failed to accept connection", zap.Error(err))
@@ -163,14 +140,8 @@ func (s *Server) acceptLoop(ln net.Listener) {
 }
 
 func (s *Server) handleConnection(rawConn net.Conn) {
-	s.connsMux.Lock()
-	s.activeConns[rawConn] = struct{}{}
-	s.connsMux.Unlock()
-
 	defer func() {
-		s.connsMux.Lock()
-		delete(s.activeConns, rawConn)
-		s.connsMux.Unlock()
+		rawConn.Close()
 		s.wg.Done()
 	}()
 
