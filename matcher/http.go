@@ -15,15 +15,20 @@ import (
 )
 
 type HTTPMatcherConfig struct {
-	Methods []string `yaml:"methods"`
-	Paths   []string `yaml:"paths"`
-	Hosts   []string `yaml:"hosts"`
+	Methods    []string `yaml:"methods"`
+	URLSchemes []string `yaml:"url_schemes"`
+	URLHosts   []string `yaml:"url_hosts"`
+	URLPaths   []string `yaml:"url_paths"`
+	Hosts      []string `yaml:"hosts"`
 }
 
 type HTTPMatcher struct {
-	config  *HTTPMatcherConfig
-	pathRes []*regexp2.Regexp
-	hostRes []*regexp2.Regexp
+	config       *HTTPMatcherConfig
+	methodStrs   []string
+	urlSchemeRes []*regexp2.Regexp
+	urlHostRes   []*regexp2.Regexp
+	urlPathRes   []*regexp2.Regexp
+	hostRes      []*regexp2.Regexp
 }
 
 func init() {
@@ -38,20 +43,38 @@ func newHTTPMatcher(parameter yaml.Node) (Matcher, error) {
 
 	m := &HTTPMatcher{config: cfg}
 
-	for _, pathPattern := range cfg.Paths {
-		pathPattern = strings.ReplaceAll(pathPattern, "*", ".*")
-		re, err := regexp2.Compile("^"+pathPattern+"$", regexp2.IgnoreCase)
+	for _, pattern := range cfg.URLSchemes {
+		pattern = strings.ReplaceAll(pattern, "*", ".*")
+		re, err := regexp2.Compile("^"+pattern+"$", regexp2.IgnoreCase)
 		if err != nil {
-			return nil, fmt.Errorf("invalid path pattern '%s': %v", pathPattern, err)
+			return nil, fmt.Errorf("invalid URLScheme pattern '%s': %v", pattern, err)
 		}
-		m.pathRes = append(m.pathRes, re)
+		m.urlSchemeRes = append(m.urlSchemeRes, re)
 	}
 
-	for _, hostPattern := range cfg.Hosts {
-		hostPattern = strings.ReplaceAll(hostPattern, "*", ".*")
-		re, err := regexp2.Compile("^"+hostPattern+"$", regexp2.IgnoreCase)
+	for _, pattern := range cfg.URLHosts {
+		pattern = strings.ReplaceAll(pattern, "*", ".*")
+		re, err := regexp2.Compile("^"+pattern+"$", regexp2.IgnoreCase)
 		if err != nil {
-			return nil, fmt.Errorf("invalid host pattern '%s': %v", hostPattern, err)
+			return nil, fmt.Errorf("invalid URLHost pattern '%s': %v", pattern, err)
+		}
+		m.urlHostRes = append(m.urlHostRes, re)
+	}
+
+	for _, pattern := range cfg.URLPaths {
+		pattern = strings.ReplaceAll(pattern, "*", ".*")
+		re, err := regexp2.Compile("^"+pattern+"$", regexp2.IgnoreCase)
+		if err != nil {
+			return nil, fmt.Errorf("invalid URLPath pattern '%s': %v", pattern, err)
+		}
+		m.urlPathRes = append(m.urlPathRes, re)
+	}
+
+	for _, pattern := range cfg.Hosts {
+		pattern = strings.ReplaceAll(pattern, "*", ".*")
+		re, err := regexp2.Compile("^"+pattern+"$", regexp2.IgnoreCase)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Host header pattern '%s': %v", pattern, err)
 		}
 		m.hostRes = append(m.hostRes, re)
 	}
@@ -61,15 +84,27 @@ func newHTTPMatcher(parameter yaml.Node) (Matcher, error) {
 
 func NewHTTPMatcher(cfg *HTTPMatcherConfig) *HTTPMatcher {
 	m := &HTTPMatcher{config: cfg}
-	for _, pathPattern := range cfg.Paths {
-		pathPattern = strings.ReplaceAll(pathPattern, "*", ".*")
-		if re, err := regexp2.Compile("^"+pathPattern+"$", regexp2.IgnoreCase); err == nil {
-			m.pathRes = append(m.pathRes, re)
+	for _, pattern := range cfg.URLSchemes {
+		pattern = strings.ReplaceAll(pattern, "*", ".*")
+		if re, err := regexp2.Compile("^"+pattern+"$", regexp2.IgnoreCase); err == nil {
+			m.urlSchemeRes = append(m.urlSchemeRes, re)
 		}
 	}
-	for _, hostPattern := range cfg.Hosts {
-		hostPattern = strings.ReplaceAll(hostPattern, "*", ".*")
-		if re, err := regexp2.Compile("^"+hostPattern+"$", regexp2.IgnoreCase); err == nil {
+	for _, pattern := range cfg.URLHosts {
+		pattern = strings.ReplaceAll(pattern, "*", ".*")
+		if re, err := regexp2.Compile("^"+pattern+"$", regexp2.IgnoreCase); err == nil {
+			m.urlHostRes = append(m.urlHostRes, re)
+		}
+	}
+	for _, pattern := range cfg.URLPaths {
+		pattern = strings.ReplaceAll(pattern, "*", ".*")
+		if re, err := regexp2.Compile("^"+pattern+"$", regexp2.IgnoreCase); err == nil {
+			m.urlPathRes = append(m.urlPathRes, re)
+		}
+	}
+	for _, pattern := range cfg.Hosts {
+		pattern = strings.ReplaceAll(pattern, "*", ".*")
+		if re, err := regexp2.Compile("^"+pattern+"$", regexp2.IgnoreCase); err == nil {
 			m.hostRes = append(m.hostRes, re)
 		}
 	}
@@ -86,6 +121,7 @@ func (m *HTTPMatcher) Match(conn net.Conn, data []byte) bool {
 	}
 	defer req.Body.Close()
 
+	// Match Method
 	if len(m.config.Methods) > 0 {
 		var methodMatch bool
 		for _, method := range m.config.Methods {
@@ -102,38 +138,79 @@ func (m *HTTPMatcher) Match(conn net.Conn, data []byte) bool {
 		}
 	}
 
-	if len(m.pathRes) > 0 {
-		var pathMatch bool
-		for _, re := range m.pathRes {
-			match, err := re.MatchString(req.URL.Path)
+	// Match URL Scheme
+	if len(m.urlSchemeRes) > 0 {
+		var schemeMatch bool
+		for _, re := range m.urlSchemeRes {
+			match, err := re.MatchString(req.URL.Scheme)
 			if err != nil {
-				zap.L().Error("regexp2 path match error", zap.Error(err))
+				zap.L().Error("regexp2 URLScheme match error", zap.Error(err))
 				continue
 			}
 			if match {
-				pathMatch = true
+				schemeMatch = true
 				break
 			}
 		}
-		if !pathMatch {
-			zap.L().Debug("HTTP path mismatch",
-				zap.Strings("expected_patterns", m.config.Paths),
+		if !schemeMatch {
+			zap.L().Debug("HTTP URLScheme mismatch",
+				zap.Strings("expected_patterns", m.config.URLSchemes),
+				zap.String("received", req.URL.Scheme))
+			return false
+		}
+	}
+
+	// Match URL Host
+	if len(m.urlHostRes) > 0 {
+		var urlHostMatch bool
+		for _, re := range m.urlHostRes {
+			match, err := re.MatchString(req.URL.Host)
+			if err != nil {
+				zap.L().Error("regexp2 URLHost match error", zap.Error(err))
+				continue
+			}
+			if match {
+				urlHostMatch = true
+				break
+			}
+		}
+		if !urlHostMatch {
+			zap.L().Debug("HTTP URLHost mismatch",
+				zap.Strings("expected_patterns", m.config.URLHosts),
+				zap.String("received", req.URL.Host))
+			return false
+		}
+	}
+
+	// Match URL Path
+	if len(m.urlPathRes) > 0 {
+		var urlPathMatch bool
+		for _, re := range m.urlPathRes {
+			match, err := re.MatchString(req.URL.Path)
+			if err != nil {
+				zap.L().Error("regexp2 URLPath match error", zap.Error(err))
+				continue
+			}
+			if match {
+				urlPathMatch = true
+				break
+			}
+		}
+		if !urlPathMatch {
+			zap.L().Debug("HTTP URLPath mismatch",
+				zap.Strings("expected_patterns", m.config.URLPaths),
 				zap.String("received", req.URL.Path))
 			return false
 		}
 	}
 
-	host := req.Host
-	if host == "" {
-		host, _, _ = net.SplitHostPort(req.URL.Host)
-	}
-
+	// Match Host header
 	if len(m.hostRes) > 0 {
 		var hostMatch bool
 		for _, re := range m.hostRes {
-			match, err := re.MatchString(host)
+			match, err := re.MatchString(req.Host)
 			if err != nil {
-				zap.L().Error("regexp2 host match error", zap.Error(err))
+				zap.L().Error("regexp2 Host header match error", zap.Error(err))
 				continue
 			}
 			if match {
@@ -142,9 +219,9 @@ func (m *HTTPMatcher) Match(conn net.Conn, data []byte) bool {
 			}
 		}
 		if !hostMatch {
-			zap.L().Debug("HTTP host mismatch",
+			zap.L().Debug("HTTP Host header mismatch",
 				zap.Strings("expected_patterns", m.config.Hosts),
-				zap.String("received", host))
+				zap.String("received", req.Host))
 			return false
 		}
 	}
