@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	socks5Version = 0x05
-	authNoAuth    = 0x00
-	authUsername  = 0x02
+	socks5Version      = 0x05
+	socks5authNoAuth   = 0x00
+	socks5authUsername = 0x02
 )
 
 type Socks5MatcherConfig struct {
@@ -65,9 +65,9 @@ func (m *Socks5Matcher) Match(conn net.Conn, data []byte) bool {
 		var methodByte byte
 		switch allowedMethod {
 		case "no_auth":
-			methodByte = authNoAuth
+			methodByte = socks5authNoAuth
 		case "username_password":
-			methodByte = authUsername
+			methodByte = socks5authUsername
 		default:
 			zap.L().Warn("SOCKS5 matcher: unknown method in config", zap.String("method", allowedMethod))
 			continue
