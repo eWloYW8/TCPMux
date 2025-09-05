@@ -8,3 +8,4 @@ The following handlers are available:
 
 - [Passthrough](passthrough.md)
 - [Reverse Proxy](reverse_proxy.md)
+- [WebServer](webserver.md)
