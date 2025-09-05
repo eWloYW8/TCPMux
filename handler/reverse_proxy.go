@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"os"
 	"strings"
@@ -21,14 +20,25 @@ import (
 )
 
 type ReverseProxyHandlerConfig struct {
-	Backend  string `yaml:"backend"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
+	Backend            string `yaml:"backend"`
+	Username           string `yaml:"username"`
+	Password           string `yaml:"password"`
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
 }
 
 type ReverseProxyHandler struct {
-	config *ReverseProxyHandlerConfig
-	proxy  *httputil.ReverseProxy
+	config     *ReverseProxyHandlerConfig
+	wsProxy    *websocketProxy
+	httpClient *http.Client
+	backendURL *url.URL
+}
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
 }
 
 func init() {
@@ -47,10 +57,9 @@ func newReverseProxyHandler(parameter yaml.Node) (Handler, error) {
 	}
 
 	h := &ReverseProxyHandler{
-		config: cfg,
+		config:     cfg,
+		backendURL: backendURL,
 	}
-
-	h.proxy = httputil.NewSingleHostReverseProxy(backendURL)
 
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
@@ -58,21 +67,27 @@ func newReverseProxyHandler(parameter yaml.Node) (Handler, error) {
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
-		ForceAttemptHTTP2: false,
+		ForceAttemptHTTP2:   false,
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
 	}
-	if backendURL.Scheme == "https" {
+
+	if backendURL.Scheme == "https" || backendURL.Scheme == "wss" {
 		transport.TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: true,
+			InsecureSkipVerify: cfg.InsecureSkipVerify,
 			ServerName:         backendURL.Hostname(),
 		}
 	}
-	h.proxy.Transport = transport
 
-	h.proxy.Director = func(req *http.Request) {
-		req.URL.Scheme = backendURL.Scheme
-		req.URL.Host = backendURL.Host
-		req.Host = backendURL.Host
+	h.httpClient = &http.Client{
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
+
+	h.wsProxy = newWebsocketProxy(backendURL, cfg.InsecureSkipVerify)
 
 	return h, nil
 }
@@ -87,7 +102,6 @@ func (h *ReverseProxyHandler) Handle(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 
 	for {
-		// Set a read deadline for keep-alive connections
 		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 
 		req, err := http.ReadRequest(reader)
@@ -110,147 +124,41 @@ func (h *ReverseProxyHandler) Handle(conn net.Conn) {
 			}
 		}
 
-		if h.isWebSocketUpgrade(req) {
-			h.handleWebSocket(conn, req)
+		if strings.ToLower(req.Header.Get("Connection")) == "upgrade" && strings.ToLower(req.Header.Get("Upgrade")) == "websocket" {
+			h.wsProxy.ServeHTTP(NewHTTPResponseWriter(conn), req)
 			return
 		}
 
-		rw := NewHTTPResponseWriter(conn)
-		h.proxy.ServeHTTP(rw, req)
+		h.proxyHTTPRequest(req, conn)
 
-		if strings.ToLower(req.Header.Get("Connection")) == "close" || strings.ToLower(rw.Header().Get("Connection")) == "close" {
+		if strings.ToLower(req.Header.Get("Connection")) == "close" {
 			zap.L().Debug("Connection: close header detected, closing connection.", zap.String("remote_addr", conn.RemoteAddr().String()))
 			return
 		}
-
-		// Flush any pending data before waiting for the next request
-		if err := rw.w.Flush(); err != nil {
-			zap.L().Error("Failed to flush writer after request.", zap.Error(err))
-			return
-		}
 	}
 }
 
-func (h *ReverseProxyHandler) isWebSocketUpgrade(req *http.Request) bool {
-	return strings.ToLower(req.Header.Get("Connection")) == "upgrade" &&
-		strings.ToLower(req.Header.Get("Upgrade")) == "websocket"
-}
+func (h *ReverseProxyHandler) proxyHTTPRequest(req *http.Request, conn net.Conn) {
+	req.URL.Scheme = h.backendURL.Scheme
+	req.URL.Host = h.backendURL.Host
+	req.RequestURI = ""
+	req.Host = h.backendURL.Host
+	req.Header.Set("X-Forwarded-For", conn.RemoteAddr().String())
+	req.Header.Set("X-Forwarded-Proto", "http")
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-}
-
-func (h *ReverseProxyHandler) handleWebSocket(conn net.Conn, req *http.Request) {
-	backendURL, _ := url.Parse(h.config.Backend)
-	backendWsURL := "ws" + strings.TrimPrefix(h.config.Backend, "http") + req.URL.Path
-	if req.URL.RawQuery != "" {
-		backendWsURL += "?" + req.URL.RawQuery
-	}
-
-	zap.L().Info("Upgrading connection to WebSocket",
-		zap.String("backend", backendWsURL),
-		zap.String("remote_addr", conn.RemoteAddr().String()))
-
-	rw := NewHTTPResponseWriter(conn)
-
-	clientWs, err := upgrader.Upgrade(rw, req, nil)
+	resp, err := h.httpClient.Do(req)
 	if err != nil {
-		zap.L().Error("Failed to upgrade client to WebSocket", zap.Error(err))
+		zap.L().Error("Failed to proxy request to backend",
+			zap.String("backend", h.config.Backend),
+			zap.Error(err))
+		http.Error(NewHTTPResponseWriter(conn), "Bad Gateway", http.StatusBadGateway)
 		return
 	}
+	defer resp.Body.Close()
 
-	defer clientWs.Close()
-
-	var tlsConfig *tls.Config
-	if backendURL.Scheme == "https" {
-		tlsConfig = &tls.Config{
-			InsecureSkipVerify: true,
-			ServerName:         backendURL.Hostname(),
-		}
-	}
-
-	backendHeaders := make(http.Header)
-
-	ignoredHeaders := map[string]struct{}{
-		"Connection":               {},
-		"Upgrade":                  {},
-		"Sec-Websocket-Key":        {},
-		"Sec-Websocket-Version":    {},
-		"Sec-Websocket-Protocol":   {},
-		"Sec-Websocket-Extensions": {},
-	}
-
-	for k, v := range req.Header {
-		if _, ok := ignoredHeaders[http.CanonicalHeaderKey(k)]; !ok {
-			backendHeaders[k] = v
-		}
-	}
-
-	dialer := websocket.Dialer{
-		Proxy:            http.ProxyFromEnvironment,
-		HandshakeTimeout: 45 * time.Second,
-		Subprotocols:     websocket.Subprotocols(req),
-		TLSClientConfig:  tlsConfig,
-	}
-
-	backendWs, resp, err := dialer.Dial(backendWsURL, backendHeaders)
-	if err != nil {
-		if resp != nil {
-			zap.L().Error("Failed to dial backend WebSocket",
-				zap.Error(err),
-				zap.Int("status_code", resp.StatusCode),
-				zap.String("backend_url", backendWsURL))
-		} else {
-			zap.L().Error("Failed to dial backend WebSocket",
-				zap.Error(err),
-				zap.String("backend_url", backendWsURL))
-		}
+	if err := resp.Write(conn); err != nil {
+		zap.L().Error("Failed to write response to client", zap.Error(err))
 		return
-	}
-
-	defer backendWs.Close()
-
-	errCh := make(chan error, 2)
-	go func() { errCh <- h.copyWebSocket(clientWs, backendWs) }()
-	go func() { errCh <- h.copyWebSocket(backendWs, clientWs) }()
-
-	<-errCh
-	<-errCh
-
-	zap.L().Info("WebSocket connections closed gracefully.",
-		zap.String("remote_addr", conn.RemoteAddr().String()),
-		zap.String("backend", h.config.Backend))
-}
-
-func (h *ReverseProxyHandler) copyWebSocket(dst, src *websocket.Conn) error {
-	for {
-		messageType, p, err := src.ReadMessage()
-		if err != nil {
-			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || errors.Is(err, io.EOF) {
-				dst.WriteControl(websocket.CloseMessage,
-					websocket.FormatCloseMessage(websocket.CloseNormalClosure, "normal closure"),
-					time.Now().Add(time.Second))
-				zap.L().Debug("WebSocket connection closed normally.", zap.Error(err))
-				return nil
-			}
-
-			zap.L().Error("WebSocket read error.", zap.Error(err))
-			return err
-		}
-
-		if err := dst.WriteMessage(messageType, p); err != nil {
-			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || errors.Is(err, io.EOF) {
-				zap.L().Debug("WebSocket write connection closed normally.", zap.Error(err))
-				return nil
-			}
-
-			zap.L().Error("WebSocket write error.", zap.Error(err))
-			return err
-		}
 	}
 }
 
@@ -270,6 +178,111 @@ func (h *ReverseProxyHandler) sendUnauthorized(conn net.Conn) {
 
 	resp.Write(conn)
 	conn.Close()
+}
+
+type websocketProxy struct {
+	dialer     *websocket.Dialer
+	backendURL *url.URL
+}
+
+func newWebsocketProxy(backendURL *url.URL, insecureSkipVerify bool) *websocketProxy {
+	var tlsConfig *tls.Config
+	if backendURL.Scheme == "https" || backendURL.Scheme == "wss" {
+		tlsConfig = &tls.Config{
+			InsecureSkipVerify: insecureSkipVerify,
+			ServerName:         backendURL.Hostname(),
+		}
+	}
+
+	return &websocketProxy{
+		dialer: &websocket.Dialer{
+			Proxy:            http.ProxyFromEnvironment,
+			HandshakeTimeout: 45 * time.Second,
+			TLSClientConfig:  tlsConfig,
+		},
+		backendURL: backendURL,
+	}
+}
+
+func (w *websocketProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	backendWsURL := "ws" + strings.TrimPrefix(w.backendURL.String(), "http") + req.URL.Path
+	if req.URL.RawQuery != "" {
+		backendWsURL += "?" + req.URL.RawQuery
+	}
+
+	backendHeaders := make(http.Header)
+	for k, v := range req.Header {
+		backendHeaders[k] = v
+	}
+	backendHeaders.Del("Connection")
+	backendHeaders.Del("Upgrade")
+	backendHeaders.Del("Sec-Websocket-Key")
+	backendHeaders.Del("Sec-Websocket-Version")
+	backendHeaders.Del("Sec-Websocket-Protocol")
+	backendHeaders.Del("Sec-Websocket-Extensions")
+
+	zap.L().Info("Upgrading connection to WebSocket",
+		zap.String("backend", backendWsURL),
+		zap.String("remote_addr", req.RemoteAddr))
+
+	conn, resp, err := w.dialer.Dial(backendWsURL, backendHeaders)
+	if err != nil {
+		if resp != nil {
+			zap.L().Error("Failed to dial backend WebSocket",
+				zap.Error(err),
+				zap.Int("status_code", resp.StatusCode),
+				zap.String("backend_url", backendWsURL))
+		} else {
+			zap.L().Error("Failed to dial backend WebSocket",
+				zap.Error(err),
+				zap.String("backend_url", backendWsURL))
+		}
+		rw.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	defer conn.Close()
+
+	clientWs, err := upgrader.Upgrade(rw, req, nil)
+	if err != nil {
+		zap.L().Error("Failed to upgrade client to WebSocket", zap.Error(err))
+		return
+	}
+	defer clientWs.Close()
+
+	errCh := make(chan error, 2)
+	go func() { errCh <- copyWebSocket(clientWs, conn) }()
+	go func() { errCh <- copyWebSocket(conn, clientWs) }()
+
+	<-errCh
+	<-errCh
+
+	zap.L().Info("WebSocket connections closed gracefully.",
+		zap.String("remote_addr", req.RemoteAddr),
+		zap.String("backend", w.backendURL.String()))
+}
+
+func copyWebSocket(dst, src *websocket.Conn) error {
+	for {
+		messageType, p, err := src.ReadMessage()
+		if err != nil {
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || errors.Is(err, io.EOF) {
+				dst.WriteControl(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, "normal closure"),
+					time.Now().Add(time.Second))
+				zap.L().Debug("WebSocket connection closed normally.", zap.Error(err))
+				return nil
+			}
+			return err
+		}
+
+		if err := dst.WriteMessage(messageType, p); err != nil {
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || errors.Is(err, io.EOF) {
+				zap.L().Debug("WebSocket write connection closed normally.", zap.Error(err))
+				return nil
+			}
+			return err
+		}
+	}
 }
 
 type HTTPResponseWriter struct {
