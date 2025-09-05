@@ -1,6 +1,6 @@
 # TCPMux
 
-A TCP traffic multiplexer written in Go.
+![TCPMux](https://socialify.git.ci/eWloYW8/TCPMux/image?description=1&font=Inter&forks=1&issues=1&language=1&name=1&pattern=Brick+Wall&pulls=1&stargazers=1&theme=Auto)
 
 [![Build and Release](https://github.com/eWloYW8/TCPMux/actions/workflows/build.yml/badge.svg)](https://github.com/eWloYW8/TCPMux/actions/workflows/build.yml)
 
