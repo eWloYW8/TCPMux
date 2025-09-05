@@ -117,6 +117,8 @@ func (h *WebServerHandler) Handle(conn net.Conn) {
 
 		h.fileHandler.ServeHTTP(res, req)
 
+		fmt.Fprint(res.conn, "0\r\n\r\n")
+
 		if req.Close {
 			break
 		}
@@ -142,6 +144,8 @@ func (w *connResponseWriter) writeHeaders() {
 		w.statusCode = http.StatusOK
 	}
 
+	w.header.Set("Transfer-Encoding", "chunked")
+
 	fmt.Fprintf(w.conn, "HTTP/1.1 %d %s\r\n", w.statusCode, http.StatusText(w.statusCode))
 
 	w.header.Write(w.conn)
@@ -160,5 +164,10 @@ func (w *connResponseWriter) Write(b []byte) (int, error) {
 	if !w.wroteHeader {
 		w.WriteHeader(http.StatusOK)
 	}
-	return w.conn.Write(b)
+
+	n, err := fmt.Fprintf(w.conn, "%x\r\n%s\r\n", len(b), b)
+	if err != nil {
+		return 0, err
+	}
+	return n - (len(fmt.Sprintf("%x\r\n", len(b))) + len("\r\n")), nil
 }
