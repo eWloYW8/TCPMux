@@ -51,6 +51,7 @@ nav:
     - HTTP 1.1: 'matchers/http.md'
     - SSH: 'matchers/ssh.md'
     - SOCKS5: 'matchers/socks5.md'
+    - Trojan: 'matchers/trojan.md'
     - IP CIDR: 'matchers/ip.md'
     - Port: 'matchers/port.md'
     - Timeout: 'matchers/timeout.md'
@@ -61,6 +62,7 @@ nav:
     - Reverse Proxy: 'handlers/reverse_proxy.md'
     - WebServer: 'handlers/webserver.md'
     - SOCKS5 Server: 'handlers/socks5.md'
+    - Trojan Server: 'handlers/trojan.md'
   - Contribution:
     - Architecture: 'contribution/index.md'
     - Matcher: 'contribution/matcher.md'

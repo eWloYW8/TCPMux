@@ -10,3 +10,4 @@ The following handlers are available:
 - [Reverse Proxy](reverse_proxy.md)
 - [WebServer](webserver.md)
 - [SOCKS5 Server](socks5.md)
+- [Trojan Server](trojan.md)

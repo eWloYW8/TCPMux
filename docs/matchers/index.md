@@ -13,6 +13,7 @@ The following matchers are available:
 - [HTTP 1.1](http.md)
 - [SSH](ssh.md)
 - [SOCKS5](socks5.md)
+- [Trojan](trojan.md)
 - [IP CIDR](ip.md)
 - [Port](port.md)
 - [Timeout](timeout.md)
