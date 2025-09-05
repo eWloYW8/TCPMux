@@ -51,6 +51,7 @@ nav:
     - HTTP 1.1: 'matchers/http.md'
     - SSH: 'matchers/ssh.md'
     - IP CIDR: 'matchers/ip.md'
+    - Port: 'matchers/port.md'
     - Timeout: 'matchers/timeout.md'
     - Logic (AND/OR): 'matchers/logic.md'
   - Handlers:
