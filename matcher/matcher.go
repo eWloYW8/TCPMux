@@ -2,13 +2,13 @@ package matcher
 
 import (
 	"fmt"
-	"net"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"gopkg.in/yaml.v3"
 )
 
 type Matcher interface {
-	Match(conn net.Conn, data []byte) bool
+	Match(conn *transport.BufferedConn) bool
 }
 
 type MatcherFactory func(yaml.Node) (Matcher, error)

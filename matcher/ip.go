@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -60,7 +61,7 @@ func NewIPMatcher(cfg *IPMatcherConfig) (*IPMatcher, error) {
 	return matcher, nil
 }
 
-func (m *IPMatcher) Match(conn net.Conn, data []byte) bool {
+func (m *IPMatcher) Match(conn *transport.BufferedConn) bool {
 	clientIP, _, err := net.SplitHostPort(conn.RemoteAddr().String())
 	if err != nil {
 		zap.L().Debug("Failed to get client IP from connection", zap.Error(err))

@@ -2,8 +2,8 @@ package matcher
 
 import (
 	"fmt"
-	"net"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -34,9 +34,9 @@ func newOrMatcher(parameter yaml.Node) (Matcher, error) {
 	return &OrMatcher{matchers: matchers}, nil
 }
 
-func (m *OrMatcher) Match(conn net.Conn, data []byte) bool {
+func (m *OrMatcher) Match(conn *transport.BufferedConn) bool {
 	for i, subMatcher := range m.matchers {
-		if subMatcher.Match(conn, data) {
+		if subMatcher.Match(conn) {
 			zap.L().Debug("Or matcher succeeded on sub-matcher", zap.Int("index", i))
 			return true
 		}

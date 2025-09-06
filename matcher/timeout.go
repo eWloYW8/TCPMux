@@ -2,8 +2,8 @@ package matcher
 
 import (
 	"fmt"
-	"net"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"gopkg.in/yaml.v3"
 )
 
@@ -31,6 +31,6 @@ func NewTimeoutMatcher(cfg *TimeoutMatcherConfig) *TimeoutMatcher {
 	return &TimeoutMatcher{config: cfg}
 }
 
-func (m *TimeoutMatcher) Match(conn net.Conn, data []byte) bool {
+func (m *TimeoutMatcher) Match(conn *transport.BufferedConn) bool {
 	return true
 }

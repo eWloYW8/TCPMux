@@ -22,7 +22,7 @@ const (
 	trojanConnectCommand   = 0x01
 	trojanAssociateCommand = 0x03
 	crlf                   = "\r\n"
-	trojanPacketMaxPayload = 65507
+	trojanPacketMaxPayload = 65487
 )
 
 // Trojan address types

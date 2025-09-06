@@ -2,8 +2,8 @@ package matcher
 
 import (
 	"fmt"
-	"net"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -41,9 +41,9 @@ func newAndMatcher(parameter yaml.Node) (Matcher, error) {
 	return &AndMatcher{matchers: matchers}, nil
 }
 
-func (m *AndMatcher) Match(conn net.Conn, data []byte) bool {
+func (m *AndMatcher) Match(conn *transport.BufferedConn) bool {
 	for i, subMatcher := range m.matchers {
-		if !subMatcher.Match(conn, data) {
+		if !subMatcher.Match(conn) {
 			zap.L().Debug("And matcher failed on sub-matcher", zap.Int("index", i))
 			return false
 		}

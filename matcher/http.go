@@ -5,11 +5,11 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 
 	"github.com/dlclark/regexp2"
+	"github.com/eWloYW8/TCPMux/transport"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -111,7 +111,9 @@ func NewHTTPMatcher(cfg *HTTPMatcherConfig) *HTTPMatcher {
 	return m
 }
 
-func (m *HTTPMatcher) Match(conn net.Conn, data []byte) bool {
+func (m *HTTPMatcher) Match(conn *transport.BufferedConn) bool {
+	data := make([]byte, 8192)
+	_, err := conn.ReadUnconsumed(data)
 	req, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(data)))
 	if err != nil {
 		if err != io.EOF {

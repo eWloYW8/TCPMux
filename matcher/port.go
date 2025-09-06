@@ -5,6 +5,7 @@ import (
 	"net"
 	"strconv"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -46,7 +47,7 @@ func NewPortMatcher(cfg *PortMatcherConfig) (*PortMatcher, error) {
 	return &PortMatcher{ports: ports}, nil
 }
 
-func (m *PortMatcher) Match(conn net.Conn, data []byte) bool {
+func (m *PortMatcher) Match(conn *transport.BufferedConn) bool {
 	_, portStr, err := net.SplitHostPort(conn.LocalAddr().String())
 	if err != nil {
 		zap.L().Debug("Failed to get local port from connection", zap.Error(err))

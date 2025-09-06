@@ -2,8 +2,8 @@ package matcher
 
 import (
 	"bytes"
-	"net"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,6 +21,8 @@ func NewSSHMatcher() *SSHMatcher {
 	return &SSHMatcher{}
 }
 
-func (m *SSHMatcher) Match(conn net.Conn, data []byte) bool {
+func (m *SSHMatcher) Match(conn *transport.BufferedConn) bool {
+	data := make([]byte, 4)
+	conn.ReadUnconsumed(data)
 	return bytes.HasPrefix(data, []byte("SSH-"))
 }

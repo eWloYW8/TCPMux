@@ -3,8 +3,8 @@ package matcher
 import (
 	"bytes"
 	"fmt"
-	"net"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -39,7 +39,9 @@ func NewSocks5Matcher(cfg *Socks5MatcherConfig) *Socks5Matcher {
 	return &Socks5Matcher{config: cfg}
 }
 
-func (m *Socks5Matcher) Match(conn net.Conn, data []byte) bool {
+func (m *Socks5Matcher) Match(conn *transport.BufferedConn) bool {
+	data := make([]byte, 32)
+	conn.ReadUnconsumed(data)
 	if len(data) < 2 || data[0] != socks5Version {
 		zap.L().Debug("SOCKS5 matcher: handshake invalid or incomplete",
 			zap.String("remote_addr", conn.RemoteAddr().String()))

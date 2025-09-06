@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bufio"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -13,6 +12,7 @@ import (
 	"github.com/eWloYW8/TCPMux/handler"
 	"github.com/eWloYW8/TCPMux/matcher"
 	tlspkg "github.com/eWloYW8/TCPMux/tls"
+	transport "github.com/eWloYW8/TCPMux/transport"
 
 	"go.uber.org/zap"
 )
@@ -158,29 +158,25 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 	}
 
 	readCh := make(chan struct {
-		conn net.Conn
-		data []byte
+		conn *transport.BufferedConn
 		err  error
 	}, 1)
 
 	go func() {
-		conn, data, err := s.peekAndRead(rawConn)
+		conn, err := s.peekAndRead(rawConn)
 		readCh <- struct {
-			conn net.Conn
-			data []byte
+			conn *transport.BufferedConn
 			err  error
-		}{conn, data, err}
+		}{conn, err}
 	}()
 
-	var conn net.Conn
-	var data []byte
+	var peekConn *transport.BufferedConn
 	var err error
 
 	if s.timeoutRule != nil {
 		select {
 		case result := <-readCh:
-			conn = result.conn
-			data = result.data
+			peekConn = result.conn
 			err = result.err
 		case <-time.After(time.Duration(timeout) * time.Second):
 			zap.L().Info("Connection timed out, applying timeout rule",
@@ -191,8 +187,7 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 		}
 	} else {
 		result := <-readCh
-		conn = result.conn
-		data = result.data
+		peekConn = result.conn
 		err = result.err
 	}
 
@@ -201,39 +196,33 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 		return
 	}
 
-	if s.findAndExecuteHandler(conn, data) {
+	if s.findAndExecuteHandler(peekConn) {
 		return
 	}
 
-	zap.L().Info("No rule matched, closing connection", zap.String("remote_addr", conn.RemoteAddr().String()))
+	zap.L().Info("No rule matched, closing connection", zap.String("remote_addr", peekConn.RemoteAddr().String()))
 }
 
-// peeks for TLS and returns a new connection for subsequent reads
-func (s *Server) peekAndRead(rawConn net.Conn) (net.Conn, []byte, error) {
-	br := bufio.NewReader(rawConn)
-	peekedBytes, err := br.Peek(1)
+func (s *Server) peekAndRead(rawConn net.Conn) (*transport.BufferedConn, error) {
+	bc := transport.NewBufferedConn(rawConn)
+	peekedBytes := make([]byte, 1)
+	_, err := bc.ReadUnconsumed(peekedBytes)
 	if err != nil && err != io.EOF {
-		return nil, nil, err
+		return nil, err
 	}
 
 	if s.tlsConfig != nil && len(peekedBytes) > 0 && peekedBytes[0] == TLSHandshakeByte {
 		zap.L().Debug("TLS connection detected", zap.String("remote_addr", rawConn.RemoteAddr().String()))
-		conn := &bufferedConn{r: br, Conn: rawConn}
-		tlsConn := tls.Server(conn, s.tlsConfig)
+		tlsConn := tls.Server(bc, s.tlsConfig)
 		if err := tlsConn.Handshake(); err != nil {
-			return nil, nil, fmt.Errorf("failed to complete TLS handshake: %v", err)
+			return nil, fmt.Errorf("failed to complete TLS handshake: %v", err)
 		}
-		buf := make([]byte, 8192)
-		n, err := tlsConn.Read(buf)
-		return tlsConn, buf[:n], err
+		return transport.NewBufferedConn(tlsConn), err
 	}
-	conn := &bufferedConn{br, rawConn}
-	buf := make([]byte, 8192)
-	n, err := conn.Read(buf)
-	return conn, buf[:n], err
+	return bc, err
 }
 
-func (s *Server) findAndExecuteHandler(conn net.Conn, data []byte) bool {
+func (s *Server) findAndExecuteHandler(conn *transport.BufferedConn) bool {
 	for i, m := range s.matchers {
 		rule := s.config.Rules[i]
 		if rule.Type == "timeout" {
@@ -241,7 +230,7 @@ func (s *Server) findAndExecuteHandler(conn net.Conn, data []byte) bool {
 		}
 
 		connIsTLS := false
-		if _, ok := conn.(*tls.Conn); ok {
+		if _, ok := conn.Conn.(*tls.Conn); ok {
 			connIsTLS = true
 		}
 
@@ -253,7 +242,7 @@ func (s *Server) findAndExecuteHandler(conn net.Conn, data []byte) bool {
 		}
 
 		if rule.Type == "tls" && connIsTLS {
-			if m.Match(conn, nil) {
+			if m.Match(conn) {
 				zap.L().Info("Matched TLS rule",
 					zap.String("rule_name", rule.Name),
 					zap.String("handler_name", rule.Handler.Name),
@@ -264,14 +253,13 @@ func (s *Server) findAndExecuteHandler(conn net.Conn, data []byte) bool {
 			continue
 		}
 
-		if m.Match(conn, data) {
+		if m.Match(conn) {
 			zap.L().Info("Matched rule",
 				zap.String("rule_name", rule.Name),
 				zap.String("handler_name", rule.Handler.Name),
 				zap.String("remote_addr", conn.RemoteAddr().String()))
 
-			finalConn := &prefixedConn{conn, data}
-			s.executeHandler(finalConn, &rule)
+			s.executeHandler(conn, &rule)
 			return true
 		}
 		zap.L().Debug("Rule did not match",
@@ -291,27 +279,4 @@ func (s *Server) executeHandler(conn net.Conn, rule *config.Rule) {
 		return
 	}
 	h.Handle(conn)
-}
-
-type prefixedConn struct {
-	net.Conn
-	prefix []byte
-}
-
-func (c *prefixedConn) Read(b []byte) (int, error) {
-	if len(c.prefix) > 0 {
-		n := copy(b, c.prefix)
-		c.prefix = c.prefix[n:]
-		return n, nil
-	}
-	return c.Conn.Read(b)
-}
-
-type bufferedConn struct {
-	r *bufio.Reader
-	net.Conn
-}
-
-func (c *bufferedConn) Read(p []byte) (int, error) {
-	return c.r.Read(p)
 }

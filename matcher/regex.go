@@ -2,9 +2,9 @@ package matcher
 
 import (
 	"fmt"
-	"net"
 
 	"github.com/dlclark/regexp2"
+	"github.com/eWloYW8/TCPMux/transport"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -37,7 +37,9 @@ func NewRegexMatcher(cfg *RegexMatcherConfig) (*RegexMatcher, error) {
 	return &RegexMatcher{re: re}, nil
 }
 
-func (m *RegexMatcher) Match(conn net.Conn, data []byte) bool {
+func (m *RegexMatcher) Match(conn *transport.BufferedConn) bool {
+	data := make([]byte, 8192)
+	_, err := conn.ReadUnconsumed(data)
 	match, err := m.re.MatchString(string(data))
 	if err != nil {
 		zap.L().Error("regex match error", zap.Error(err))

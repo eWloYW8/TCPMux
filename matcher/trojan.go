@@ -5,13 +5,13 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
-	"net"
 	"strings"
 
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
 	"github.com/dlclark/regexp2"
+	"github.com/eWloYW8/TCPMux/transport"
 )
 
 type TrojanMatcherConfig struct {
@@ -55,11 +55,14 @@ func NewTrojanMatcher(cfg *TrojanMatcherConfig) (*TrojanMatcher, error) {
 	return &TrojanMatcher{config: cfg, re: re}, nil
 }
 
-func (m *TrojanMatcher) Match(conn net.Conn, data []byte) bool {
-	if _, ok := conn.(*tls.Conn); !ok {
+func (m *TrojanMatcher) Match(conn *transport.BufferedConn) bool {
+	if _, ok := conn.Conn.(*tls.Conn); !ok {
 		zap.L().Debug("Trojan matcher requires a TLS connection, skipping")
 		return false
 	}
+
+	data := make([]byte, 58)
+	conn.ReadUnconsumed(data)
 
 	if m.re != nil {
 		// Trojan protocol starts with hex(SHA224(password)) followed by CRLF.

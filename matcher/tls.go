@@ -3,8 +3,8 @@ package matcher
 import (
 	"crypto/tls"
 	"fmt"
-	"net"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -34,8 +34,8 @@ func NewTLSMatcher(cfg *TLSMatcherConfig) *TLSMatcher {
 	return &TLSMatcher{config: cfg}
 }
 
-func (m *TLSMatcher) Match(conn net.Conn, data []byte) bool {
-	tlsConn, ok := conn.(*tls.Conn)
+func (m *TLSMatcher) Match(conn *transport.BufferedConn) bool {
+	tlsConn, ok := conn.Conn.(*tls.Conn)
 	if !ok {
 		return false
 	}

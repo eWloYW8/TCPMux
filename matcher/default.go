@@ -1,8 +1,7 @@
 package matcher
 
 import (
-	"net"
-
+	"github.com/eWloYW8/TCPMux/transport"
 	"gopkg.in/yaml.v3"
 )
 
@@ -20,6 +19,6 @@ func NewDefaultMatcher() *DefaultMatcher {
 	return &DefaultMatcher{}
 }
 
-func (m *DefaultMatcher) Match(conn net.Conn, data []byte) bool {
+func (m *DefaultMatcher) Match(conn *transport.BufferedConn) bool {
 	return true
 }

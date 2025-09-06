@@ -3,8 +3,8 @@ package matcher
 import (
 	"bytes"
 	"fmt"
-	"net"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"gopkg.in/yaml.v3"
 )
 
@@ -33,7 +33,9 @@ func NewSubstringMatcher(cfg *SubstringMatcherConfig) *SubstringMatcher {
 	return &SubstringMatcher{config: cfg}
 }
 
-func (m *SubstringMatcher) Match(conn net.Conn, data []byte) bool {
+func (m *SubstringMatcher) Match(conn *transport.BufferedConn) bool {
+	data := make([]byte, 8192)
+	conn.ReadUnconsumed(data)
 	if m.config.Offset < 0 || m.config.Offset > len(data) {
 		return false
 	}
