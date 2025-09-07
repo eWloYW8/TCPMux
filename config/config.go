@@ -7,10 +7,16 @@ import (
 )
 
 type Config struct {
-	TLS     TLSConfig     `yaml:"tls"`
-	Rules   []Rule        `yaml:"rules"`
-	Logging LoggingConfig `yaml:"logging"`
-	Listen  []string      `yaml:"listen"`
+	TLS        TLSConfig        `yaml:"tls"`
+	Rules      []Rule           `yaml:"rules"`
+	Logging    LoggingConfig    `yaml:"logging"`
+	Listen     []string         `yaml:"listen"`
+	Controller ControllerConfig `yaml:"controller"`
+}
+
+type ControllerConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Listen  string `yaml:"listen"`
 }
 
 type TLSConfig struct {

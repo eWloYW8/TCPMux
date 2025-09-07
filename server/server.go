@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -14,12 +15,21 @@ import (
 	tlspkg "github.com/eWloYW8/TCPMux/tls"
 	transport "github.com/eWloYW8/TCPMux/transport"
 
+	"github.com/rs/xid"
 	"go.uber.org/zap"
 )
 
 const (
 	TLSHandshakeByte = 0x16
 )
+
+type ConnectionInfo struct {
+	ID           string `json:"id"`
+	RemoteAddr   string `json:"remote_addr"`
+	BytesRead    uint64 `json:"bytes_read"`
+	BytesWritten uint64 `json:"bytes_written"`
+	RuleName     string `json:"rule_name"`
+}
 
 type Server struct {
 	config            *config.Config
@@ -30,6 +40,7 @@ type Server struct {
 	timeoutRule       *config.Rule
 	wg                sync.WaitGroup
 	activeConnections sync.Map
+	controllerStop    context.CancelFunc
 }
 
 func NewServer(cfg *config.Config) (*Server, error) {
@@ -113,8 +124,52 @@ func (s *Server) Start() error {
 	return nil
 }
 
+func (s *Server) GetActiveConnections() []ConnectionInfo {
+	var connections []ConnectionInfo
+	s.activeConnections.Range(func(key, value interface{}) bool {
+		conn, ok := value.(*transport.ClientConnection)
+		if !ok {
+			return true
+		}
+		info := ConnectionInfo{
+			ID:           conn.GetID().String(),
+			RemoteAddr:   conn.RemoteAddr().String(),
+			BytesRead:    conn.BytesRead(),
+			BytesWritten: conn.BytesWritten(),
+			RuleName:     conn.GetRuleName(),
+		}
+		connections = append(connections, info)
+		return true
+	})
+	return connections
+}
+
+func (s *Server) CloseConnection(id string) bool {
+	parsedID, err := xid.FromString(id)
+	if err != nil {
+		zap.L().Warn("Invalid connection ID provided", zap.String("id", id))
+		return false
+	}
+
+	if conn, ok := s.activeConnections.Load(parsedID); ok {
+		s.activeConnections.Delete(parsedID)
+		if clientConn, ok := conn.(*transport.ClientConnection); ok {
+			zap.L().Info("Closing connection via API", zap.String("conn_id", id))
+			clientConn.Close()
+			return true
+		}
+	}
+	zap.L().Info("Connection not found", zap.String("conn_id", id))
+	return false
+}
+
 func (s *Server) Stop() {
 	zap.L().Info("Starting shutdown...")
+	if s.controllerStop != nil {
+		zap.L().Info("Stopping controller API server...")
+		s.controllerStop()
+	}
+
 	for _, ln := range s.listeners {
 		ln.Close()
 	}
@@ -151,10 +206,10 @@ func (s *Server) acceptLoop(ln net.Listener) {
 func (s *Server) handleConnection(rawConn net.Conn) {
 	conn := transport.NewClientConnection(rawConn)
 	connID := conn.GetID()
-	s.activeConnections.Store(connID, rawConn)
+	s.activeConnections.Store(connID, conn)
 
 	defer func() {
-		rawConn.Close()
+		conn.Close()
 		s.activeConnections.Delete(connID)
 		s.wg.Done()
 	}()

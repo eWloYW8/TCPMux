@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/eWloYW8/TCPMux/config"
+	"github.com/eWloYW8/TCPMux/controller"
 	"github.com/eWloYW8/TCPMux/logger"
 	"github.com/eWloYW8/TCPMux/server"
 
@@ -42,6 +45,14 @@ func main() {
 		zap.L().Fatal("failed to create server", zap.Error(err))
 	}
 
+	var ctrl *controller.Controller
+	if cfg.Controller.Enabled {
+		ctrl = controller.NewController(s, &cfg.Controller)
+		go func() {
+			ctrl.Start()
+		}()
+	}
+
 	go func() {
 		if err := s.Start(); err != nil {
 			zap.L().Fatal("failed to start server", zap.Error(err))
@@ -49,9 +60,31 @@ func main() {
 	}()
 
 	quit := make(chan os.Signal, 1)
+	secondQuit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
 
-	s.Stop()
-	zap.L().Info("server shutdown complete.")
+	go func() {
+		<-quit
+		zap.L().Info("First shutdown signal received. Starting graceful shutdown...")
+		signal.Notify(secondQuit, syscall.SIGINT, syscall.SIGTERM)
+
+		go func() {
+			<-secondQuit
+			zap.L().Warn("Second shutdown signal received! Forcing exit.")
+			os.Exit(1)
+		}()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s.Stop()
+
+		if ctrl != nil {
+			ctrl.Stop(ctx)
+		}
+
+		zap.L().Info("Server shutdown complete. Exiting.")
+		os.Exit(0)
+	}()
+	select {}
+
 }
