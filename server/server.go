@@ -163,7 +163,7 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 	}, 1)
 
 	go func() {
-		conn, err := s.peekAndRead(rawConn)
+		conn, err := s.initializeConnection(rawConn)
 		readCh <- struct {
 			conn *transport.BufferedConn
 			err  error
@@ -203,7 +203,7 @@ func (s *Server) handleConnection(rawConn net.Conn) {
 	zap.L().Info("No rule matched, closing connection", zap.String("remote_addr", peekConn.RemoteAddr().String()))
 }
 
-func (s *Server) peekAndRead(rawConn net.Conn) (*transport.BufferedConn, error) {
+func (s *Server) initializeConnection(rawConn net.Conn) (*transport.BufferedConn, error) {
 	bc := transport.NewBufferedConn(rawConn)
 	peekedBytes := make([]byte, 1)
 	_, err := bc.ReadUnconsumed(peekedBytes)
