@@ -22,13 +22,14 @@ const (
 )
 
 type Server struct {
-	config      *config.Config
-	listeners   []net.Listener
-	matchers    []matcher.Matcher
-	handlers    map[string]handler.Handler
-	tlsConfig   *tls.Config
-	timeoutRule *config.Rule
-	wg          sync.WaitGroup
+	config            *config.Config
+	listeners         []net.Listener
+	matchers          []matcher.Matcher
+	handlers          map[string]handler.Handler
+	tlsConfig         *tls.Config
+	timeoutRule       *config.Rule
+	wg                sync.WaitGroup
+	activeConnections sync.Map
 }
 
 func NewServer(cfg *config.Config) (*Server, error) {
@@ -118,6 +119,14 @@ func (s *Server) Stop() {
 		ln.Close()
 	}
 	zap.L().Info("Listeners closed. No new connections will be accepted.")
+
+	s.activeConnections.Range(func(key, value interface{}) bool {
+		conn := value.(net.Conn)
+		conn.Close()
+		return true
+	})
+
+	zap.L().Info("All active connections closed.")
 }
 
 func (s *Server) acceptLoop(ln net.Listener) {
@@ -140,12 +149,16 @@ func (s *Server) acceptLoop(ln net.Listener) {
 }
 
 func (s *Server) handleConnection(rawConn net.Conn) {
+	conn := transport.NewClientConnection(rawConn)
+	connID := conn.GetID()
+	s.activeConnections.Store(connID, rawConn)
+
 	defer func() {
 		rawConn.Close()
+		s.activeConnections.Delete(connID)
 		s.wg.Done()
 	}()
 
-	conn := transport.NewClientConnection(rawConn)
 	logger := conn.GetLogger()
 
 	logger.Debug("Handling new connection")
