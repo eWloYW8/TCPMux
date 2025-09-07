@@ -42,6 +42,7 @@ nav:
     - Rules: 'configuration/rules.md'
     - Logging: 'configuration/logging.md'
     - TLS: 'configuration/tls.md'
+    - Controller: 'configuration/controller.md'
   - Matchers:
     - Overview: 'matchers/index.md'
     - Default: 'matchers/default.md'

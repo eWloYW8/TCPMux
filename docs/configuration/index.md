@@ -35,6 +35,10 @@ rules:
         tls:
           enabled: true
           insecure_skip_verify: true
+
+controller:
+  enabled: true
+  listen: "127.0.0.1:12067"
 ```
 
 ## Using YAML Anchors
