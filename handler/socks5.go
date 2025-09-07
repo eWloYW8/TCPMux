@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -72,17 +73,18 @@ func NewSocks5Handler(config *Socks5HandlerConfig) *Socks5Handler {
 	return &Socks5Handler{config: config}
 }
 
-func (h *Socks5Handler) Handle(conn net.Conn) {
-	zap.L().Info("Handling connection with socks5 handler",
-		zap.String("remote_addr", conn.RemoteAddr().String()))
+func (h *Socks5Handler) Handle(conn *transport.ClientConnection) {
+	logger := conn.GetLogger()
+	logger.Info("Handling connection with socks5 handler")
 	defer conn.Close()
 
 	if err := h.handleSocks5(conn); err != nil {
-		zap.L().Error("SOCKS5 handler error", zap.Error(err), zap.String("remote_addr", conn.RemoteAddr().String()))
+		logger.Error("SOCKS5 handler error", zap.Error(err))
 	}
 }
 
-func (h *Socks5Handler) handleSocks5(conn net.Conn) error {
+func (h *Socks5Handler) handleSocks5(conn *transport.ClientConnection) error {
+	logger := conn.GetLogger()
 	reader := bufio.NewReader(conn)
 
 	header := make([]byte, 2)
@@ -199,13 +201,12 @@ func (h *Socks5Handler) handleSocks5(conn net.Conn) error {
 
 	targetAddr := net.JoinHostPort(host, strconv.Itoa(port))
 
-	zap.L().Info("SOCKS5 CONNECT request",
-		zap.String("remote_addr", conn.RemoteAddr().String()),
+	logger.Info("SOCKS5 CONNECT request",
 		zap.String("target", targetAddr))
 
 	backendConn, err := net.Dial("tcp", targetAddr)
 	if err != nil {
-		zap.L().Error("Failed to connect to backend", zap.Error(err), zap.String("target", targetAddr))
+		logger.Error("Failed to connect to backend", zap.Error(err), zap.String("target", targetAddr))
 		replyCode := socks5GeneralFailure
 		if opErr, ok := err.(*net.OpError); ok {
 			if strings.Contains(opErr.Err.Error(), "refused") {
@@ -236,7 +237,7 @@ func (h *Socks5Handler) handleSocks5(conn net.Conn) error {
 		defer wg.Done()
 		_, err := io.Copy(backendConn, reader)
 		if err != nil && !isIgnorableError(err) {
-			zap.L().Error("Error copying data from client to backend", zap.Error(err))
+			logger.Error("Error copying data from client to backend", zap.Error(err))
 		}
 		closeConns()
 	}()
@@ -245,20 +246,20 @@ func (h *Socks5Handler) handleSocks5(conn net.Conn) error {
 		defer wg.Done()
 		_, err := io.Copy(conn, backendConn)
 		if err != nil && !isIgnorableError(err) {
-			zap.L().Error("Error copying data from backend to client", zap.Error(err))
+			logger.Error("Error copying data from backend to client", zap.Error(err))
 		}
 		closeConns()
 	}()
 
 	wg.Wait()
-	zap.L().Info("SOCKS5 connection closed",
-		zap.String("remote_addr", conn.RemoteAddr().String()),
+	logger.Info("SOCKS5 connection closed",
 		zap.String("target", targetAddr))
 
 	return nil
 }
 
-func (h *Socks5Handler) authenticate(reader *bufio.Reader, conn net.Conn) error {
+func (h *Socks5Handler) authenticate(reader *bufio.Reader, conn *transport.ClientConnection) error {
+	logger := conn.GetLogger()
 	version := make([]byte, 1)
 	if _, err := io.ReadFull(reader, version); err != nil {
 		return fmt.Errorf("failed to read auth version: %v", err)
@@ -291,16 +292,16 @@ func (h *Socks5Handler) authenticate(reader *bufio.Reader, conn net.Conn) error 
 
 	if username != h.config.Username || password != h.config.Password {
 		conn.Write([]byte{0x01, 0xFF})
-		zap.L().Warn("SOCKS5 authentication failed", zap.String("username", username))
+		logger.Warn("SOCKS5 authentication failed", zap.String("username", username))
 		return errors.New("invalid username or password")
 	}
 
 	conn.Write([]byte{0x01, 0x00})
-	zap.L().Info("SOCKS5 authentication socks5Succeeded", zap.String("username", username))
+	logger.Info("SOCKS5 authentication socks5Succeeded", zap.String("username", username))
 	return nil
 }
 
-func (h *Socks5Handler) sendSocks5Reply(conn net.Conn, rep byte, bindAddr *net.TCPAddr) {
+func (h *Socks5Handler) sendSocks5Reply(conn *transport.ClientConnection, rep byte, bindAddr *net.TCPAddr) {
 	response := []byte{socks5Version, rep, 0x00}
 
 	if bindAddr != nil {

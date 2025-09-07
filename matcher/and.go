@@ -41,13 +41,14 @@ func newAndMatcher(parameter yaml.Node) (Matcher, error) {
 	return &AndMatcher{matchers: matchers}, nil
 }
 
-func (m *AndMatcher) Match(conn *transport.BufferedConn) bool {
+func (m *AndMatcher) Match(conn *transport.ClientConnection) bool {
+	logger := conn.GetLogger()
 	for i, subMatcher := range m.matchers {
 		if !subMatcher.Match(conn) {
-			zap.L().Debug("And matcher failed on sub-matcher", zap.Int("index", i))
+			logger.Debug("And matcher failed on sub-matcher", zap.Int("index", i))
 			return false
 		}
 	}
-	zap.L().Debug("And matcher succeeded, all sub-matchers matched")
+	logger.Info("And matcher succeeded, all sub-matchers matched")
 	return true
 }

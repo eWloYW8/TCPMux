@@ -33,7 +33,7 @@ func NewSubstringMatcher(cfg *SubstringMatcherConfig) *SubstringMatcher {
 	return &SubstringMatcher{config: cfg}
 }
 
-func (m *SubstringMatcher) Match(conn *transport.BufferedConn) bool {
+func (m *SubstringMatcher) Match(conn *transport.ClientConnection) bool {
 	data := make([]byte, 8192)
 	conn.ReadUnconsumed(data)
 	if m.config.Offset < 0 || m.config.Offset > len(data) {

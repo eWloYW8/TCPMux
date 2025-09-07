@@ -39,27 +39,25 @@ func NewSocks5Matcher(cfg *Socks5MatcherConfig) *Socks5Matcher {
 	return &Socks5Matcher{config: cfg}
 }
 
-func (m *Socks5Matcher) Match(conn *transport.BufferedConn) bool {
+func (m *Socks5Matcher) Match(conn *transport.ClientConnection) bool {
+	logger := conn.GetLogger()
 	data := make([]byte, 32)
 	conn.ReadUnconsumed(data)
 	if len(data) < 2 || data[0] != socks5Version {
-		zap.L().Debug("SOCKS5 matcher: handshake invalid or incomplete",
-			zap.String("remote_addr", conn.RemoteAddr().String()))
+		logger.Debug("SOCKS5 matcher: handshake invalid or incomplete")
 		return false
 	}
 
 	nMethods := int(data[1])
 	if len(data) < 2+nMethods {
-		zap.L().Debug("SOCKS5 matcher: incomplete methods list",
-			zap.String("remote_addr", conn.RemoteAddr().String()))
+		logger.Debug("SOCKS5 matcher: incomplete methods list")
 		return false
 	}
 
 	clientMethods := data[2 : 2+nMethods]
 
 	if len(m.config.AllowedMethods) == 0 {
-		zap.L().Debug("SOCKS5 matcher: no specific method required, accepting any valid handshake",
-			zap.String("remote_addr", conn.RemoteAddr().String()))
+		logger.Debug("SOCKS5 matcher: no specific method required, accepting any valid handshake")
 		return true
 	}
 
@@ -71,19 +69,17 @@ func (m *Socks5Matcher) Match(conn *transport.BufferedConn) bool {
 		case "username_password":
 			methodByte = socks5authUsername
 		default:
-			zap.L().Warn("SOCKS5 matcher: unknown method in config", zap.String("method", allowedMethod))
+			logger.Warn("SOCKS5 matcher: unknown method in config", zap.String("method", allowedMethod))
 			continue
 		}
 
 		if bytes.Contains(clientMethods, []byte{methodByte}) {
-			zap.L().Debug("SOCKS5 matcher: authentication method matched",
-				zap.String("remote_addr", conn.RemoteAddr().String()),
+			logger.Debug("SOCKS5 matcher: authentication method matched",
 				zap.String("matched_method", allowedMethod))
 			return true
 		}
 	}
 
-	zap.L().Debug("SOCKS5 matcher: no allowed authentication method found in client request",
-		zap.String("remote_addr", conn.RemoteAddr().String()))
+	logger.Debug("SOCKS5 matcher: no allowed authentication method found in client request")
 	return false
 }

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -56,17 +57,18 @@ func NewTrojanHandler(config *TrojanHandlerConfig) *TrojanHandler {
 	return &TrojanHandler{config: config}
 }
 
-func (h *TrojanHandler) Handle(conn net.Conn) {
-	zap.L().Info("Handling connection with trojan handler",
-		zap.String("remote_addr", conn.RemoteAddr().String()))
+func (h *TrojanHandler) Handle(conn *transport.ClientConnection) {
+	logger := conn.GetLogger()
+	logger.Info("Handling connection with trojan handler")
 	defer conn.Close()
 
 	if err := h.handleTrojan(conn); err != nil {
-		zap.L().Error("Trojan handler error", zap.Error(err), zap.String("remote_addr", conn.RemoteAddr().String()))
+		logger.Error("Trojan handler error", zap.Error(err))
 	}
 }
 
-func (h *TrojanHandler) handleTrojan(conn net.Conn) error {
+func (h *TrojanHandler) handleTrojan(conn *transport.ClientConnection) error {
+	logger := conn.GetLogger()
 	reader := bufio.NewReader(conn)
 
 	receivedHashHex := make([]byte, 56)
@@ -113,7 +115,7 @@ func (h *TrojanHandler) handleTrojan(conn net.Conn) error {
 		return fmt.Errorf("failed to read second CRLF: %v", err)
 	}
 
-	zap.L().Info("Trojan request received",
+	logger.Info("Trojan request received",
 		zap.String("command", fmt.Sprintf("0x%x", command)),
 		zap.String("target", targetAddr))
 
@@ -190,10 +192,11 @@ func (h *TrojanHandler) readAddress(reader *bufio.Reader) (host string, port int
 }
 
 // handles the TCP CONNECT command.
-func (h *TrojanHandler) handleConnect(clientConn net.Conn, reader *bufio.Reader, targetAddr string) error {
+func (h *TrojanHandler) handleConnect(clientConn *transport.ClientConnection, reader *bufio.Reader, targetAddr string) error {
+	logger := clientConn.GetLogger()
 	backendConn, err := net.Dial("tcp", targetAddr)
 	if err != nil {
-		zap.L().Error("Failed to connect to backend", zap.Error(err), zap.String("target", targetAddr))
+		logger.Error("Failed to connect to backend", zap.Error(err), zap.String("target", targetAddr))
 		return fmt.Errorf("failed to connect to backend %s: %v", targetAddr, err)
 	}
 	defer backendConn.Close()
@@ -212,18 +215,19 @@ func (h *TrojanHandler) handleConnect(clientConn net.Conn, reader *bufio.Reader,
 	go func() {
 		defer wg.Done()
 		io.Copy(clientConn, backendConn)
-		if conn, ok := clientConn.(*net.TCPConn); ok {
+		if conn, ok := clientConn.Conn.(*net.TCPConn); ok {
 			conn.CloseWrite()
 		}
 	}()
 
 	wg.Wait()
-	zap.L().Info("Trojan TCP connection closed", zap.String("target", targetAddr))
+	logger.Info("Trojan TCP connection closed", zap.String("target", targetAddr))
 	return nil
 }
 
 // handles the UDP ASSOCIATE command.
-func (h *TrojanHandler) handleAssociate(clientConn net.Conn, reader *bufio.Reader) error {
+func (h *TrojanHandler) handleAssociate(clientConn *transport.ClientConnection, reader *bufio.Reader) error {
+	logger := clientConn.GetLogger()
 	connTable := make(map[string]net.Conn)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -332,6 +336,6 @@ func (h *TrojanHandler) handleAssociate(clientConn net.Conn, reader *bufio.Reade
 
 	wg.Wait()
 
-	zap.L().Info("Trojan UDP association closed", zap.String("remote_addr", clientConn.RemoteAddr().String()))
+	logger.Info("Trojan UDP association closed")
 	return nil
 }

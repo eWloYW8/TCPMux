@@ -55,9 +55,10 @@ func NewTrojanMatcher(cfg *TrojanMatcherConfig) (*TrojanMatcher, error) {
 	return &TrojanMatcher{config: cfg, re: re}, nil
 }
 
-func (m *TrojanMatcher) Match(conn *transport.BufferedConn) bool {
+func (m *TrojanMatcher) Match(conn *transport.ClientConnection) bool {
+	logger := conn.GetLogger()
 	if _, ok := conn.Conn.(*tls.Conn); !ok {
-		zap.L().Debug("Trojan matcher requires a TLS connection, skipping")
+		logger.Debug("Trojan matcher requires a TLS connection, skipping")
 		return false
 	}
 
@@ -68,11 +69,11 @@ func (m *TrojanMatcher) Match(conn *transport.BufferedConn) bool {
 		// Trojan protocol starts with hex(SHA224(password)) followed by CRLF.
 		match, err := m.re.MatchString(string(data))
 		if err != nil {
-			zap.L().Error("Trojan password regex match failed", zap.Error(err))
+			logger.Error("Trojan password regex match failed", zap.Error(err))
 			return false
 		}
 		if !match {
-			zap.L().Debug("Trojan password mismatch")
+			logger.Debug("Trojan password mismatch")
 		}
 		return match
 	}
@@ -83,6 +84,6 @@ func (m *TrojanMatcher) Match(conn *transport.BufferedConn) bool {
 		}
 	}
 
-	zap.L().Debug("Trojan protocol structure not matched")
+	logger.Debug("Trojan protocol structure not matched")
 	return false
 }

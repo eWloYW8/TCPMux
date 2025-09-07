@@ -47,23 +47,24 @@ func NewPortMatcher(cfg *PortMatcherConfig) (*PortMatcher, error) {
 	return &PortMatcher{ports: ports}, nil
 }
 
-func (m *PortMatcher) Match(conn *transport.BufferedConn) bool {
+func (m *PortMatcher) Match(conn *transport.ClientConnection) bool {
+	logger := conn.GetLogger()
 	_, portStr, err := net.SplitHostPort(conn.LocalAddr().String())
 	if err != nil {
-		zap.L().Debug("Failed to get local port from connection", zap.Error(err))
+		logger.Debug("Failed to get local port from connection", zap.Error(err))
 		return false
 	}
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		zap.L().Debug("Failed to parse local port", zap.String("port_str", portStr))
+		logger.Debug("Failed to parse local port")
 		return false
 	}
 
 	if _, ok := m.ports[port]; ok {
-		zap.L().Debug("Connection port matched a configured port", zap.Int("port", port))
+		logger.Debug("Connection port matched a configured port")
 		return true
 	}
 
-	zap.L().Debug("Connection port did not match any configured port", zap.Int("port", port))
+	logger.Debug("Connection port did not match any configured port")
 	return false
 }

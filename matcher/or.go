@@ -34,13 +34,14 @@ func newOrMatcher(parameter yaml.Node) (Matcher, error) {
 	return &OrMatcher{matchers: matchers}, nil
 }
 
-func (m *OrMatcher) Match(conn *transport.BufferedConn) bool {
+func (m *OrMatcher) Match(conn *transport.ClientConnection) bool {
+	logger := conn.GetLogger()
 	for i, subMatcher := range m.matchers {
 		if subMatcher.Match(conn) {
-			zap.L().Debug("Or matcher succeeded on sub-matcher", zap.Int("index", i))
+			logger.Debug("Or matcher succeeded on sub-matcher", zap.Int("index", i))
 			return true
 		}
 	}
-	zap.L().Debug("Or matcher failed, no sub-matchers matched")
+	logger.Debug("Or matcher failed, no sub-matchers matched")
 	return false
 }

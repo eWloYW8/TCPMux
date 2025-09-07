@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path"
 	"strings"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -96,11 +96,12 @@ func NewWebServerHandler(config *WebServerHandlerConfig) (*WebServerHandler, err
 	return handler, nil
 }
 
-func (h *WebServerHandler) Handle(conn net.Conn) {
+func (h *WebServerHandler) Handle(conn *transport.ClientConnection) {
+	logger := conn.GetLogger()
+
 	defer conn.Close()
-	zap.L().Info("Handling connection with webserver handler",
-		zap.String("dir", h.config.Dir),
-		zap.String("remote_addr", conn.RemoteAddr().String()))
+	logger.Info("Handling connection with webserver handler",
+		zap.String("dir", h.config.Dir))
 
 	reader := bufio.NewReader(conn)
 
@@ -108,10 +109,15 @@ func (h *WebServerHandler) Handle(conn net.Conn) {
 		req, err := http.ReadRequest(reader)
 		if err != nil {
 			if err != io.EOF && !strings.Contains(err.Error(), "use of closed network connection") {
-				zap.L().Debug("Failed to read HTTP request", zap.Error(err))
+				logger.Debug("Failed to read HTTP request", zap.Error(err))
 			}
 			return
 		}
+
+		logger.Info("Received HTTP request",
+			zap.String("method", req.Method),
+			zap.String("url", req.URL.String()),
+		)
 
 		res := &connResponseWriter{conn: conn, header: make(http.Header)}
 
@@ -126,7 +132,7 @@ func (h *WebServerHandler) Handle(conn net.Conn) {
 }
 
 type connResponseWriter struct {
-	conn        net.Conn
+	conn        *transport.ClientConnection
 	header      http.Header
 	statusCode  int
 	wroteHeader bool

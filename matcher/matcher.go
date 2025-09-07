@@ -8,7 +8,7 @@ import (
 )
 
 type Matcher interface {
-	Match(conn *transport.BufferedConn) bool
+	Match(conn *transport.ClientConnection) bool
 }
 
 type MatcherFactory func(yaml.Node) (Matcher, error)

@@ -37,12 +37,13 @@ func NewRegexMatcher(cfg *RegexMatcherConfig) (*RegexMatcher, error) {
 	return &RegexMatcher{re: re}, nil
 }
 
-func (m *RegexMatcher) Match(conn *transport.BufferedConn) bool {
+func (m *RegexMatcher) Match(conn *transport.ClientConnection) bool {
+	logger := conn.GetLogger()
 	data := make([]byte, 8192)
 	_, err := conn.ReadUnconsumed(data)
 	match, err := m.re.MatchString(string(data))
 	if err != nil {
-		zap.L().Error("regex match error", zap.Error(err))
+		logger.Error("regex match error", zap.Error(err))
 		return false
 	}
 	return match

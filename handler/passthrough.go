@@ -9,6 +9,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -46,10 +47,10 @@ func NewPassthroughHandler(config *PassthroughHandlerConfig) *PassthroughHandler
 	return &PassthroughHandler{config: config}
 }
 
-func (h *PassthroughHandler) Handle(conn net.Conn) {
-	zap.L().Info("Handling connection with passthrough handler",
-		zap.String("backend", h.config.Backend),
-		zap.String("remote_addr", conn.RemoteAddr().String()))
+func (h *PassthroughHandler) Handle(conn *transport.ClientConnection) {
+	logger := conn.GetLogger()
+	logger.Info("Handling connection with passthrough handler",
+		zap.String("backend", h.config.Backend))
 
 	defer conn.Close()
 
@@ -61,7 +62,7 @@ func (h *PassthroughHandler) Handle(conn net.Conn) {
 			InsecureSkipVerify: h.config.TLS.InsecureSkipVerify,
 		}
 
-		if tlsConn, ok := conn.(*tls.Conn); ok {
+		if tlsConn, ok := conn.Conn.(*tls.Conn); ok {
 			connState := tlsConn.ConnectionState()
 			if h.config.TLS.SNI != "" {
 				tlsConfig.ServerName = h.config.TLS.SNI
@@ -78,7 +79,7 @@ func (h *PassthroughHandler) Handle(conn net.Conn) {
 			tlsConfig.ServerName = h.config.TLS.SNI
 		}
 
-		zap.L().Debug("Connecting to backend with TLS",
+		logger.Debug("Connecting to backend with TLS",
 			zap.String("backend", h.config.Backend),
 			zap.String("sni", tlsConfig.ServerName),
 			zap.Strings("alpn", tlsConfig.NextProtos))
@@ -89,15 +90,13 @@ func (h *PassthroughHandler) Handle(conn net.Conn) {
 	}
 
 	if err != nil {
-		zap.L().Error("Failed to connect to backend",
+		logger.Error("Failed to connect to backend",
 			zap.String("backend", h.config.Backend),
-			zap.String("remote_addr", conn.RemoteAddr().String()),
 			zap.Error(err))
 		return
 	}
-	zap.L().Info("Successfully connected to backend",
-		zap.String("backend", h.config.Backend),
-		zap.String("remote_addr", conn.RemoteAddr().String()))
+	logger.Info("Successfully connected to backend",
+		zap.String("backend", h.config.Backend))
 
 	closeOnce := sync.Once{}
 	closeConns := func() {
@@ -115,7 +114,7 @@ func (h *PassthroughHandler) Handle(conn net.Conn) {
 		defer closeConns()
 		if _, err := io.Copy(backendConn, conn); err != nil {
 			if !isIgnorableError(err) {
-				zap.L().Error("Error copying data from client to backend", zap.Error(err))
+				logger.Error("Error copying data from client to backend", zap.Error(err))
 			}
 		}
 	}()
@@ -125,15 +124,12 @@ func (h *PassthroughHandler) Handle(conn net.Conn) {
 		defer closeConns()
 		if _, err := io.Copy(conn, backendConn); err != nil {
 			if !isIgnorableError(err) {
-				zap.L().Error("Error copying data from backend to client", zap.Error(err))
+				logger.Error("Error copying data from backend to client", zap.Error(err))
 			}
 		}
 	}()
 
 	wg.Wait()
-	zap.L().Info("Connection closed",
-		zap.String("remote_addr", conn.RemoteAddr().String()),
-		zap.String("backend", h.config.Backend))
 }
 
 func isIgnorableError(err error) bool {

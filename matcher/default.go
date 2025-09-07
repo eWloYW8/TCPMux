@@ -19,6 +19,6 @@ func NewDefaultMatcher() *DefaultMatcher {
 	return &DefaultMatcher{}
 }
 
-func (m *DefaultMatcher) Match(conn *transport.BufferedConn) bool {
+func (m *DefaultMatcher) Match(conn *transport.ClientConnection) bool {
 	return true
 }

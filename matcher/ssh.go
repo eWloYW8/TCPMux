@@ -21,7 +21,7 @@ func NewSSHMatcher() *SSHMatcher {
 	return &SSHMatcher{}
 }
 
-func (m *SSHMatcher) Match(conn *transport.BufferedConn) bool {
+func (m *SSHMatcher) Match(conn *transport.ClientConnection) bool {
 	data := make([]byte, 4)
 	conn.ReadUnconsumed(data)
 	return bytes.HasPrefix(data, []byte("SSH-"))

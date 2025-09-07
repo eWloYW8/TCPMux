@@ -2,13 +2,13 @@ package handler
 
 import (
 	"fmt"
-	"net"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"gopkg.in/yaml.v3"
 )
 
 type Handler interface {
-	Handle(conn net.Conn)
+	Handle(conn *transport.ClientConnection)
 }
 
 type HandlerFactory func(yaml.Node) (Handler, error)

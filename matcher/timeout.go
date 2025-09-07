@@ -31,6 +31,6 @@ func NewTimeoutMatcher(cfg *TimeoutMatcherConfig) *TimeoutMatcher {
 	return &TimeoutMatcher{config: cfg}
 }
 
-func (m *TimeoutMatcher) Match(conn *transport.BufferedConn) bool {
+func (m *TimeoutMatcher) Match(conn *transport.ClientConnection) bool {
 	return true
 }

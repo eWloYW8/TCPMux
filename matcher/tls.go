@@ -34,7 +34,8 @@ func NewTLSMatcher(cfg *TLSMatcherConfig) *TLSMatcher {
 	return &TLSMatcher{config: cfg}
 }
 
-func (m *TLSMatcher) Match(conn *transport.BufferedConn) bool {
+func (m *TLSMatcher) Match(conn *transport.ClientConnection) bool {
+	logger := conn.GetLogger()
 	tlsConn, ok := conn.Conn.(*tls.Conn)
 	if !ok {
 		return false
@@ -43,7 +44,7 @@ func (m *TLSMatcher) Match(conn *transport.BufferedConn) bool {
 	state := tlsConn.ConnectionState()
 
 	if m.config.SNI != "" && m.config.SNI != state.ServerName {
-		zap.L().Debug("SNI mismatch",
+		logger.Debug("SNI mismatch",
 			zap.String("expected", m.config.SNI),
 			zap.String("received", state.ServerName))
 		return false
@@ -58,7 +59,7 @@ func (m *TLSMatcher) Match(conn *transport.BufferedConn) bool {
 			}
 		}
 		if !alpnMatch {
-			zap.L().Debug("ALPN mismatch",
+			logger.Debug("ALPN mismatch",
 				zap.Strings("expected", m.config.ALPN),
 				zap.String("received", state.NegotiatedProtocol))
 			return false

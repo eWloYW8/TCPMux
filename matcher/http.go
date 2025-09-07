@@ -111,13 +111,14 @@ func NewHTTPMatcher(cfg *HTTPMatcherConfig) *HTTPMatcher {
 	return m
 }
 
-func (m *HTTPMatcher) Match(conn *transport.BufferedConn) bool {
+func (m *HTTPMatcher) Match(conn *transport.ClientConnection) bool {
+	logger := conn.GetLogger()
 	data := make([]byte, 8192)
 	_, err := conn.ReadUnconsumed(data)
 	req, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(data)))
 	if err != nil {
 		if err != io.EOF {
-			zap.L().Debug("Failed to parse HTTP request", zap.Error(err))
+			logger.Debug("Failed to parse HTTP request", zap.Error(err))
 		}
 		return false
 	}
@@ -133,7 +134,7 @@ func (m *HTTPMatcher) Match(conn *transport.BufferedConn) bool {
 			}
 		}
 		if !methodMatch {
-			zap.L().Debug("HTTP method mismatch",
+			logger.Debug("HTTP method mismatch",
 				zap.Strings("expected", m.config.Methods),
 				zap.String("received", req.Method))
 			return false
@@ -146,7 +147,7 @@ func (m *HTTPMatcher) Match(conn *transport.BufferedConn) bool {
 		for _, re := range m.urlSchemeRes {
 			match, err := re.MatchString(req.URL.Scheme)
 			if err != nil {
-				zap.L().Error("regexp2 URLScheme match error", zap.Error(err))
+				logger.Error("regexp2 URLScheme match error", zap.Error(err))
 				continue
 			}
 			if match {
@@ -155,7 +156,7 @@ func (m *HTTPMatcher) Match(conn *transport.BufferedConn) bool {
 			}
 		}
 		if !schemeMatch {
-			zap.L().Debug("HTTP URLScheme mismatch",
+			logger.Debug("HTTP URLScheme mismatch",
 				zap.Strings("expected_patterns", m.config.URLSchemes),
 				zap.String("received", req.URL.Scheme))
 			return false
@@ -168,7 +169,7 @@ func (m *HTTPMatcher) Match(conn *transport.BufferedConn) bool {
 		for _, re := range m.urlHostRes {
 			match, err := re.MatchString(req.URL.Host)
 			if err != nil {
-				zap.L().Error("regexp2 URLHost match error", zap.Error(err))
+				logger.Error("regexp2 URLHost match error", zap.Error(err))
 				continue
 			}
 			if match {
@@ -177,7 +178,7 @@ func (m *HTTPMatcher) Match(conn *transport.BufferedConn) bool {
 			}
 		}
 		if !urlHostMatch {
-			zap.L().Debug("HTTP URLHost mismatch",
+			logger.Debug("HTTP URLHost mismatch",
 				zap.Strings("expected_patterns", m.config.URLHosts),
 				zap.String("received", req.URL.Host))
 			return false
@@ -190,7 +191,7 @@ func (m *HTTPMatcher) Match(conn *transport.BufferedConn) bool {
 		for _, re := range m.urlPathRes {
 			match, err := re.MatchString(req.URL.Path)
 			if err != nil {
-				zap.L().Error("regexp2 URLPath match error", zap.Error(err))
+				logger.Error("regexp2 URLPath match error", zap.Error(err))
 				continue
 			}
 			if match {
@@ -199,7 +200,7 @@ func (m *HTTPMatcher) Match(conn *transport.BufferedConn) bool {
 			}
 		}
 		if !urlPathMatch {
-			zap.L().Debug("HTTP URLPath mismatch",
+			logger.Debug("HTTP URLPath mismatch",
 				zap.Strings("expected_patterns", m.config.URLPaths),
 				zap.String("received", req.URL.Path))
 			return false
@@ -212,7 +213,7 @@ func (m *HTTPMatcher) Match(conn *transport.BufferedConn) bool {
 		for _, re := range m.hostRes {
 			match, err := re.MatchString(req.Host)
 			if err != nil {
-				zap.L().Error("regexp2 Host header match error", zap.Error(err))
+				logger.Error("regexp2 Host header match error", zap.Error(err))
 				continue
 			}
 			if match {
@@ -221,7 +222,7 @@ func (m *HTTPMatcher) Match(conn *transport.BufferedConn) bool {
 			}
 		}
 		if !hostMatch {
-			zap.L().Debug("HTTP Host header mismatch",
+			logger.Debug("HTTP Host header mismatch",
 				zap.Strings("expected_patterns", m.config.Hosts),
 				zap.String("received", req.Host))
 			return false

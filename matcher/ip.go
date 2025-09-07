@@ -61,15 +61,16 @@ func NewIPMatcher(cfg *IPMatcherConfig) (*IPMatcher, error) {
 	return matcher, nil
 }
 
-func (m *IPMatcher) Match(conn *transport.BufferedConn) bool {
+func (m *IPMatcher) Match(conn *transport.ClientConnection) bool {
+	logger := conn.GetLogger()
 	clientIP, _, err := net.SplitHostPort(conn.RemoteAddr().String())
 	if err != nil {
-		zap.L().Debug("Failed to get client IP from connection", zap.Error(err))
+		logger.Debug("Failed to get client IP from connection", zap.Error(err))
 		return false
 	}
 	ip := net.ParseIP(clientIP)
 	if ip == nil {
-		zap.L().Debug("Failed to parse client IP", zap.String("client_ip", clientIP))
+		logger.Debug("Failed to parse client IP")
 		return false
 	}
 
@@ -83,20 +84,16 @@ func (m *IPMatcher) Match(conn *transport.BufferedConn) bool {
 
 	if m.mode == "allow" {
 		if isMatch {
-			zap.L().Debug("Client IP matched a configured CIDR (allow mode)",
-				zap.String("client_ip", clientIP))
+			logger.Debug("Client IP matched a configured CIDR (allow mode)")
 		} else {
-			zap.L().Debug("Client IP did not match any configured CIDR (allow mode)",
-				zap.String("client_ip", clientIP))
+			logger.Debug("Client IP did not match any configured CIDR (allow mode)")
 		}
 		return isMatch
 	} else {
 		if isMatch {
-			zap.L().Debug("Client IP matched a configured CIDR (deny mode)",
-				zap.String("client_ip", clientIP))
+			logger.Debug("Client IP matched a configured CIDR (deny mode)")
 		} else {
-			zap.L().Debug("Client IP did not match any configured CIDR (deny mode)",
-				zap.String("client_ip", clientIP))
+			logger.Debug("Client IP did not match any configured CIDR (deny mode)")
 		}
 		return !isMatch
 	}

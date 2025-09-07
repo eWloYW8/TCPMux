@@ -14,6 +14,7 @@ import (
 
 	"crypto/tls"
 
+	"github.com/eWloYW8/TCPMux/transport"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
@@ -92,10 +93,10 @@ func newReverseProxyHandler(parameter yaml.Node) (Handler, error) {
 	return h, nil
 }
 
-func (h *ReverseProxyHandler) Handle(conn net.Conn) {
-	zap.L().Info("Handling connection with reverse_proxy handler",
-		zap.String("backend", h.config.Backend),
-		zap.String("remote_addr", conn.RemoteAddr().String()))
+func (h *ReverseProxyHandler) Handle(conn *transport.ClientConnection) {
+	logger := conn.GetLogger()
+	logger.Info("Handling connection with reverse_proxy handler",
+		zap.String("backend", h.config.Backend))
 
 	defer conn.Close()
 
@@ -107,38 +108,43 @@ func (h *ReverseProxyHandler) Handle(conn net.Conn) {
 		req, err := http.ReadRequest(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.Is(err, os.ErrDeadlineExceeded) {
-				zap.L().Debug("Client connection closed gracefully or timed out.", zap.String("remote_addr", conn.RemoteAddr().String()))
+				logger.Debug("Client connection closed gracefully or timed out.")
 			} else if !strings.Contains(err.Error(), "client disconnected") {
-				zap.L().Error("Failed to read HTTP request", zap.Error(err), zap.String("remote_addr", conn.RemoteAddr().String()))
+				logger.Error("Failed to read HTTP request", zap.Error(err))
 			}
 			return
 		}
+
+		logger.Debug("Received HTTP request",
+			zap.String("method", req.Method),
+			zap.String("url", req.URL.String()))
 
 		if h.config.Username != "" || h.config.Password != "" {
 			user, pass, ok := req.BasicAuth()
 			if !ok || user != h.config.Username || pass != h.config.Password {
 				h.sendUnauthorized(conn)
-				zap.L().Warn("Basic authentication failed for connection",
-					zap.String("remote_addr", conn.RemoteAddr().String()))
+				logger.Warn("Basic authentication failed for connection")
 				return
 			}
 		}
 
 		if strings.ToLower(req.Header.Get("Connection")) == "upgrade" && strings.ToLower(req.Header.Get("Upgrade")) == "websocket" {
-			h.wsProxy.ServeHTTP(NewHTTPResponseWriter(conn), req)
+			h.wsProxy.ServeHTTP(NewHTTPResponseWriter(conn), req, logger)
 			return
 		}
 
 		h.proxyHTTPRequest(req, conn)
 
 		if strings.ToLower(req.Header.Get("Connection")) == "close" {
-			zap.L().Debug("Connection: close header detected, closing connection.", zap.String("remote_addr", conn.RemoteAddr().String()))
+			logger.Debug("Connection: close header detected, closing connection.")
 			return
 		}
 	}
 }
 
-func (h *ReverseProxyHandler) proxyHTTPRequest(req *http.Request, conn net.Conn) {
+func (h *ReverseProxyHandler) proxyHTTPRequest(req *http.Request, conn *transport.ClientConnection) {
+	logger := conn.GetLogger()
+
 	req.URL.Scheme = h.backendURL.Scheme
 	req.URL.Host = h.backendURL.Host
 	req.RequestURI = ""
@@ -148,7 +154,7 @@ func (h *ReverseProxyHandler) proxyHTTPRequest(req *http.Request, conn net.Conn)
 
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
-		zap.L().Error("Failed to proxy request to backend",
+		logger.Error("Failed to proxy request to backend",
 			zap.String("backend", h.config.Backend),
 			zap.Error(err))
 		http.Error(NewHTTPResponseWriter(conn), "Bad Gateway", http.StatusBadGateway)
@@ -157,12 +163,12 @@ func (h *ReverseProxyHandler) proxyHTTPRequest(req *http.Request, conn net.Conn)
 	defer resp.Body.Close()
 
 	if err := resp.Write(conn); err != nil {
-		zap.L().Error("Failed to write response to client", zap.Error(err))
+		logger.Error("Failed to write response to client", zap.Error(err))
 		return
 	}
 }
 
-func (h *ReverseProxyHandler) sendUnauthorized(conn net.Conn) {
+func (h *ReverseProxyHandler) sendUnauthorized(conn *transport.ClientConnection) {
 	resp := &http.Response{
 		Status:     "401 Unauthorized",
 		StatusCode: http.StatusUnauthorized,
@@ -204,7 +210,7 @@ func newWebsocketProxy(backendURL *url.URL, insecureSkipVerify bool) *websocketP
 	}
 }
 
-func (w *websocketProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+func (w *websocketProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request, logger *zap.Logger) {
 	backendWsURL := "ws" + strings.TrimPrefix(w.backendURL.String(), "http") + req.URL.Path
 	if req.URL.RawQuery != "" {
 		backendWsURL += "?" + req.URL.RawQuery
@@ -221,19 +227,18 @@ func (w *websocketProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	backendHeaders.Del("Sec-Websocket-Protocol")
 	backendHeaders.Del("Sec-Websocket-Extensions")
 
-	zap.L().Info("Upgrading connection to WebSocket",
-		zap.String("backend", backendWsURL),
-		zap.String("remote_addr", req.RemoteAddr))
+	logger.Info("Upgrading connection to WebSocket",
+		zap.String("backend", backendWsURL))
 
 	conn, resp, err := w.dialer.Dial(backendWsURL, backendHeaders)
 	if err != nil {
 		if resp != nil {
-			zap.L().Error("Failed to dial backend WebSocket",
+			logger.Error("Failed to dial backend WebSocket",
 				zap.Error(err),
 				zap.Int("status_code", resp.StatusCode),
 				zap.String("backend_url", backendWsURL))
 		} else {
-			zap.L().Error("Failed to dial backend WebSocket",
+			logger.Error("Failed to dial backend WebSocket",
 				zap.Error(err),
 				zap.String("backend_url", backendWsURL))
 		}
@@ -244,24 +249,23 @@ func (w *websocketProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	clientWs, err := upgrader.Upgrade(rw, req, nil)
 	if err != nil {
-		zap.L().Error("Failed to upgrade client to WebSocket", zap.Error(err))
+		logger.Error("Failed to upgrade client to WebSocket", zap.Error(err))
 		return
 	}
 	defer clientWs.Close()
 
 	errCh := make(chan error, 2)
-	go func() { errCh <- copyWebSocket(clientWs, conn) }()
-	go func() { errCh <- copyWebSocket(conn, clientWs) }()
+	go func() { errCh <- copyWebSocket(clientWs, conn, logger) }()
+	go func() { errCh <- copyWebSocket(conn, clientWs, logger) }()
 
 	<-errCh
 	<-errCh
 
-	zap.L().Info("WebSocket connections closed gracefully.",
-		zap.String("remote_addr", req.RemoteAddr),
+	logger.Info("WebSocket connections closed gracefully.",
 		zap.String("backend", w.backendURL.String()))
 }
 
-func copyWebSocket(dst, src *websocket.Conn) error {
+func copyWebSocket(dst, src *websocket.Conn, logger *zap.Logger) error {
 	for {
 		messageType, p, err := src.ReadMessage()
 		if err != nil {
@@ -269,7 +273,7 @@ func copyWebSocket(dst, src *websocket.Conn) error {
 				dst.WriteControl(websocket.CloseMessage,
 					websocket.FormatCloseMessage(websocket.CloseNormalClosure, "normal closure"),
 					time.Now().Add(time.Second))
-				zap.L().Debug("WebSocket connection closed normally.", zap.Error(err))
+				logger.Debug("WebSocket connection closed normally.", zap.Error(err))
 				return nil
 			}
 			return err
@@ -277,7 +281,7 @@ func copyWebSocket(dst, src *websocket.Conn) error {
 
 		if err := dst.WriteMessage(messageType, p); err != nil {
 			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || errors.Is(err, io.EOF) {
-				zap.L().Debug("WebSocket write connection closed normally.", zap.Error(err))
+				logger.Debug("WebSocket write connection closed normally.", zap.Error(err))
 				return nil
 			}
 			return err
@@ -286,14 +290,14 @@ func copyWebSocket(dst, src *websocket.Conn) error {
 }
 
 type HTTPResponseWriter struct {
-	conn       net.Conn
+	conn       *transport.ClientConnection
 	header     http.Header
 	statusCode int
 	written    bool
 	w          *bufio.Writer
 }
 
-func NewHTTPResponseWriter(conn net.Conn) *HTTPResponseWriter {
+func NewHTTPResponseWriter(conn *transport.ClientConnection) *HTTPResponseWriter {
 	return &HTTPResponseWriter{
 		conn:   conn,
 		header: make(http.Header),
@@ -313,8 +317,9 @@ func (w *HTTPResponseWriter) Write(data []byte) (int, error) {
 }
 
 func (w *HTTPResponseWriter) WriteHeader(statusCode int) {
+	logger := w.conn.GetLogger()
 	if w.written {
-		zap.L().Warn("Ignoring multiple calls to WriteHeader", zap.Int("status_code", statusCode))
+		logger.Warn("Ignoring multiple calls to WriteHeader", zap.Int("status_code", statusCode))
 		return
 	}
 	w.statusCode = statusCode
