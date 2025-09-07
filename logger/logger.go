@@ -23,18 +23,20 @@ func InitLogger(cfg config.LoggingConfig) error {
 	jsonEncoderConfig := zap.NewProductionEncoderConfig()
 	jsonEncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 
-	var encoder zapcore.Encoder
+	fileEncoder := zapcore.NewJSONEncoder(jsonEncoderConfig)
+
+	var stderrEncoder zapcore.Encoder
 	if cfg.Format == "json" {
-		encoder = zapcore.NewJSONEncoder(jsonEncoderConfig)
+		stderrEncoder = zapcore.NewJSONEncoder(jsonEncoderConfig)
 	} else {
-		encoder = zapcore.NewConsoleEncoder(consoleEncoderConfig)
+		stderrEncoder = zapcore.NewConsoleEncoder(consoleEncoderConfig)
 	}
 
 	cores := []zapcore.Core{}
 
 	if cfg.Stderr {
 		cores = append(cores, zapcore.NewCore(
-			encoder,
+			stderrEncoder,
 			zapcore.AddSync(zapcore.Lock(zapcore.NewMultiWriteSyncer(zapcore.AddSync(os.Stderr)))),
 			logLevel,
 		))
@@ -46,7 +48,7 @@ func InitLogger(cfg config.LoggingConfig) error {
 			return err
 		}
 		cores = append(cores, zapcore.NewCore(
-			encoder,
+			fileEncoder,
 			fileSyncer,
 			logLevel,
 		))
