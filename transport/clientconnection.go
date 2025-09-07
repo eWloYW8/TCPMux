@@ -3,7 +3,6 @@ package transport
 import (
 	"bytes"
 	"net"
-	"sync"
 
 	"github.com/rs/xid"
 	"go.uber.org/zap"
@@ -11,7 +10,6 @@ import (
 
 type ClientConnection struct {
 	net.Conn
-	mu sync.Mutex
 
 	id     xid.ID
 	logger *zap.Logger
@@ -43,9 +41,6 @@ func NewClientConnection(c net.Conn) *ClientConnection {
 }
 
 func (c *ClientConnection) Read(b []byte) (int, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if c.buf.Len() > 0 {
 		n, err := c.buf.Read(b)
 		if n > 0 {
@@ -70,9 +65,6 @@ func (c *ClientConnection) Write(b []byte) (int, error) {
 }
 
 func (c *ClientConnection) ReadUnconsumed(b []byte) (n int, err error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if c.buf.Len() == 0 {
 		tmp := make([]byte, 8192)
 		nRead, err := c.Conn.Read(tmp)
@@ -104,8 +96,6 @@ func (c *ClientConnection) BytesWritten() uint64 {
 }
 
 func (c *ClientConnection) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.closed {
 		return nil
 	}
