@@ -22,15 +22,16 @@ func main() {
 	configPath := flag.String("config", "config.yaml", "path to config file")
 	flag.Parse()
 
-	zap.L().Info("Starting TCPMux server...", zap.String("version", Version))
+	fmt.Fprintf(os.Stderr, "Starting TCPMux server...\n")
 
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
-		zap.L().Fatal("failed to load config", zap.Error(err))
+		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
+		os.Exit(1)
 	}
 
 	if err := logger.InitLogger(cfg.Logging); err != nil {
-		zap.L().Fatal("failed to initialize logger", zap.Error(err))
+		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
 	}
 	defer zap.L().Sync()
 
