@@ -42,12 +42,14 @@ type Server struct {
 	activeConnections sync.Map
 	controllerStop    context.CancelFunc
 	rulesMutex        sync.RWMutex
+	tlsConfigMutex    sync.RWMutex
 }
 
 func NewServer(cfg *config.Config) (*Server, error) {
 	s := &Server{
-		config:   cfg,
-		handlers: make(map[string]handler.Handler),
+		config:         cfg,
+		handlers:       make(map[string]handler.Handler),
+		tlsConfigMutex: sync.RWMutex{},
 	}
 
 	if err := s.initHandlers(); err != nil {
@@ -279,6 +281,27 @@ func (s *Server) MoveRule(from, to int) bool {
 	return true
 }
 
+func (s *Server) GetTLSConfig() *config.TLSConfig {
+	s.tlsConfigMutex.RLock()
+	defer s.tlsConfigMutex.RUnlock()
+	return &s.config.TLS
+}
+
+func (s *Server) SetTLSConfig(cfg *config.TLSConfig) error {
+	s.tlsConfigMutex.Lock()
+	defer s.tlsConfigMutex.Unlock()
+
+	newTLSConfig, err := tlspkg.NewTLSConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create new TLS config: %v", err)
+	}
+
+	s.tlsConfig = newTLSConfig
+	s.config.TLS = *cfg
+	zap.L().Info("TLS configuration updated successfully via API")
+	return nil
+}
+
 func (s *Server) acceptLoop(ln net.Listener) {
 	defer s.wg.Done()
 	zap.L().Info("Listening for connections", zap.String("address", ln.Addr().String()))
@@ -376,9 +399,13 @@ func (s *Server) detectAndUpgradeTLS(conn *transport.ClientConnection) (*transpo
 		return nil, err
 	}
 
-	if s.tlsConfig != nil && len(peekedBytes) > 0 && peekedBytes[0] == TLSHandshakeByte {
+	s.tlsConfigMutex.RLock()
+	tlsConfig := s.tlsConfig
+	s.tlsConfigMutex.RUnlock()
+
+	if tlsConfig != nil && len(peekedBytes) > 0 && peekedBytes[0] == TLSHandshakeByte {
 		conn.GetLogger().Info("TLS connection detected")
-		tlsConn := tls.Server(conn, s.tlsConfig)
+		tlsConn := tls.Server(conn, tlsConfig)
 		if err := tlsConn.Handshake(); err != nil {
 			return nil, fmt.Errorf("failed to complete TLS handshake: %v", err)
 		}

@@ -28,6 +28,8 @@ type Server interface {
 	AddRule(rule *config.Rule, index int) bool
 	RemoveRule(index int) bool
 	MoveRule(from, to int) bool
+	GetTLSConfig() *config.TLSConfig
+	SetTLSConfig(cfg *config.TLSConfig) error
 }
 
 type Controller struct {
@@ -65,6 +67,8 @@ func (c *Controller) Start() {
 	api.POST("/rules/temp", c.addTemporaryRule)
 	api.DELETE("/rules/:index", c.removeRule)
 	api.POST("/rules/move", c.moveRule)
+	api.GET("/tls", c.getTLSConfig)
+	api.POST("/tls", c.setTLSConfig)
 
 	c.httpServer = &http.Server{
 		Addr:    c.config.Listen,
@@ -349,6 +353,38 @@ func (c *Controller) moveRule(ctx *gin.Context) {
 	} else {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Failed to move rule. Check if indices are valid."})
 	}
+}
+
+func (c *Controller) getTLSConfig(ctx *gin.Context) {
+	tlsConfig := c.server.GetTLSConfig()
+	if tlsConfig == nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "TLS configuration not found"})
+		return
+	}
+	ctx.JSON(http.StatusOK, tlsConfig)
+}
+
+func (c *Controller) setTLSConfig(ctx *gin.Context) {
+	var body struct {
+		Config string `json:"config"`
+	}
+	if err := ctx.BindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	var newCfg config.TLSConfig
+	if err := yaml.Unmarshal([]byte(body.Config), &newCfg); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid YAML config format: %v", err)})
+		return
+	}
+
+	if err := c.server.SetTLSConfig(&newCfg); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to update TLS config: %v", err)})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "TLS configuration updated successfully"})
 }
 
 type Hub struct {
