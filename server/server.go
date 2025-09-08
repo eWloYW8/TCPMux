@@ -302,6 +302,25 @@ func (s *Server) SetTLSConfig(cfg *config.TLSConfig) error {
 	return nil
 }
 
+func (s *Server) GetListeners() []string {
+	s.rulesMutex.RLock()
+	defer s.rulesMutex.RUnlock()
+
+	var addrs []string
+	for _, ln := range s.listeners {
+		addrs = append(addrs, ln.Addr().String())
+	}
+	return addrs
+}
+
+func (s *Server) GetLoggingConfig() *config.LoggingConfig {
+	s.rulesMutex.RLock()
+	defer s.rulesMutex.RUnlock()
+
+	cfg := s.config.Logging
+	return &cfg
+}
+
 func (s *Server) acceptLoop(ln net.Listener) {
 	defer s.wg.Done()
 	zap.L().Info("Listening for connections", zap.String("address", ln.Addr().String()))

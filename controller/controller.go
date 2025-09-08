@@ -31,6 +31,8 @@ type Server interface {
 	MoveRule(from, to int) bool
 	GetTLSConfig() *config.TLSConfig
 	SetTLSConfig(cfg *config.TLSConfig) error
+	GetListeners() []string
+	GetLoggingConfig() *config.LoggingConfig
 }
 
 type Controller struct {
@@ -71,6 +73,8 @@ func (c *Controller) Start() {
 	api.POST("/rules/move", c.moveRule)
 	api.GET("/tls", c.getTLSConfig)
 	api.POST("/tls", c.setTLSConfig)
+	api.GET("/listeners", c.getListeners)
+	api.GET("/logging", c.getLoggingConfig)
 
 	c.httpServer = &http.Server{
 		Addr:    c.config.Listen,
@@ -387,6 +391,16 @@ func (c *Controller) setTLSConfig(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{"message": "TLS configuration updated successfully"})
+}
+
+func (c *Controller) getListeners(ctx *gin.Context) {
+	listeners := c.server.GetListeners()
+	ctx.JSON(http.StatusOK, gin.H{"listeners": listeners})
+}
+
+func (c *Controller) getLoggingConfig(ctx *gin.Context) {
+	loggingConfig := c.server.GetLoggingConfig()
+	ctx.JSON(http.StatusOK, loggingConfig)
 }
 
 type Hub struct {
