@@ -14,6 +14,7 @@ import (
 	"github.com/eWloYW8/TCPMux/config"
 	"github.com/eWloYW8/TCPMux/server"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
@@ -53,6 +54,7 @@ func (c *Controller) Start() {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 
+	router.Use(cors.Default())
 	router.Use(ginZapLogger(c.logger))
 	router.Use(gin.Recovery())
 
