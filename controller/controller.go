@@ -47,11 +47,12 @@ func (c *Controller) Start() {
 	router.Use(ginZapLogger(c.logger))
 	router.Use(gin.Recovery())
 
-	router.GET("/logs", c.getLogs)
-	router.GET("/ws/logs", c.streamLogs)
-	router.GET("/connections", c.getConnections)
-	router.POST("/connections/:id/close", c.closeConnection)
-	router.GET("/ws/connections", c.wsConnections)
+	api := router.Group("/api")
+	api.GET("/logs", c.getLogs)
+	api.GET("/ws/logs", c.streamLogs)
+	api.GET("/connections", c.getConnections)
+	api.POST("/connections/:id/close", c.closeConnection)
+	api.GET("/ws/connections", c.wsConnections)
 
 	c.httpServer = &http.Server{
 		Addr:    c.config.Listen,
