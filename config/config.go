@@ -36,6 +36,7 @@ type Rule struct {
 	TLSRequired bool          `yaml:"tls_required"`
 	Parameter   yaml.Node     `yaml:"parameter"`
 	Handler     HandlerConfig `yaml:"handler"`
+	Enabled     bool          `yaml:"enabled"`
 }
 
 type HandlerConfig struct {
@@ -66,5 +67,8 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.Logging.Format = "console"
 	}
 
+	for i := range cfg.Rules {
+		cfg.Rules[i].Enabled = true
+	}
 	return &cfg, nil
 }

@@ -41,6 +41,7 @@ type Server struct {
 	wg                sync.WaitGroup
 	activeConnections sync.Map
 	controllerStop    context.CancelFunc
+	rulesMutex        sync.RWMutex
 }
 
 func NewServer(cfg *config.Config) (*Server, error) {
@@ -184,6 +185,22 @@ func (s *Server) Stop() {
 	zap.L().Info("All active connections closed.")
 }
 
+func (s *Server) GetRules() []config.Rule {
+	s.rulesMutex.RLock()
+	defer s.rulesMutex.RUnlock()
+	return s.config.Rules
+}
+
+func (s *Server) SetRuleEnabled(index int, enabled bool) bool {
+	s.rulesMutex.Lock()
+	defer s.rulesMutex.Unlock()
+	if index < 0 || index >= len(s.config.Rules) {
+		return false
+	}
+	s.config.Rules[index].Enabled = enabled
+	return true
+}
+
 func (s *Server) acceptLoop(ln net.Listener) {
 	defer s.wg.Done()
 	zap.L().Info("Listening for connections", zap.String("address", ln.Addr().String()))
@@ -303,9 +320,18 @@ func (s *Server) detectAndUpgradeTLS(conn *transport.ClientConnection) (*transpo
 func (s *Server) findAndExecuteHandler(conn *transport.ClientConnection) bool {
 	logger := conn.GetLogger()
 	logger.Debug("Finding matching rule for connection")
+
+	s.rulesMutex.RLock()
+	defer s.rulesMutex.RUnlock()
+
 	for i, m := range s.matchers {
 		rule := s.config.Rules[i]
 		if rule.Type == "timeout" {
+			continue
+		}
+
+		if !rule.Enabled {
+			logger.Debug("Skipping disabled rule", zap.String("rule_name", rule.Name))
 			continue
 		}
 

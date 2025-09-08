@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,8 @@ import (
 type Server interface {
 	GetActiveConnections() []server.ConnectionInfo
 	CloseConnection(id string) bool
+	GetRules() []config.Rule
+	SetRuleEnabled(index int, enabled bool) bool
 }
 
 type Controller struct {
@@ -53,6 +56,8 @@ func (c *Controller) Start() {
 	api.GET("/connections", c.getConnections)
 	api.POST("/connections/:id/close", c.closeConnection)
 	api.GET("/ws/connections", c.wsConnections)
+	api.GET("/rules", c.getRules)
+	api.POST("/rules/:index/toggle/:enabled", c.toggleRule)
 
 	c.httpServer = &http.Server{
 		Addr:    c.config.Listen,
@@ -204,6 +209,71 @@ func (c *Controller) closeConnection(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Connection %s closed", id)})
 	} else {
 		ctx.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Connection %s not found", id)})
+	}
+}
+
+type jsonRule struct {
+	Index       int         `json:"index"`
+	Name        string      `json:"name"`
+	Type        string      `json:"type"`
+	TLSRequired bool        `json:"tls_required"`
+	Parameter   interface{} `json:"parameter"`
+	Handler     interface{} `json:"handler"`
+	Enabled     bool        `json:"enabled"`
+}
+
+func (c *Controller) getRules(ctx *gin.Context) {
+	rules := c.server.GetRules()
+	jsonRules := make([]jsonRule, len(rules))
+	for i, r := range rules {
+		var parameter interface{}
+		r.Parameter.Decode(&parameter)
+
+		var handlerParameter interface{}
+		r.Handler.Parameter.Decode(&handlerParameter)
+
+		jsonRules[i] = jsonRule{
+			Index:       i,
+			Name:        r.Name,
+			Type:        r.Type,
+			TLSRequired: r.TLSRequired,
+			Parameter:   parameter,
+			Handler: struct {
+				Name      string      `json:"name"`
+				Type      string      `json:"type"`
+				Parameter interface{} `json:"parameter"`
+			}{
+				Name:      r.Handler.Name,
+				Type:      r.Handler.Type,
+				Parameter: handlerParameter,
+			},
+			Enabled: r.Enabled,
+		}
+	}
+
+	ctx.JSON(http.StatusOK, jsonRules)
+}
+
+func (c *Controller) toggleRule(ctx *gin.Context) {
+	indexStr := ctx.Param("index")
+	enabledStr := ctx.Param("enabled")
+
+	index, err := strconv.Atoi(indexStr)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid rule index"})
+		return
+	}
+
+	enabled, err := strconv.ParseBool(enabledStr)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid enabled parameter. Use 'true' or 'false'."})
+		return
+	}
+
+	if c.server.SetRuleEnabled(index, enabled) {
+		ctx.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Rule %d enabled state set to %t", index, enabled)})
+	} else {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Rule not found"})
 	}
 }
 
