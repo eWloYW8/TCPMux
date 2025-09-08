@@ -37,6 +37,7 @@ type Rule struct {
 	Parameter   yaml.Node     `yaml:"parameter"`
 	Handler     HandlerConfig `yaml:"handler"`
 	Enabled     bool          `yaml:"enabled"`
+	IsTemporary bool          `yaml:"-"`
 }
 
 type HandlerConfig struct {

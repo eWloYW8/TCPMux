@@ -201,6 +201,84 @@ func (s *Server) SetRuleEnabled(index int, enabled bool) bool {
 	return true
 }
 
+func (s *Server) AddRule(rule *config.Rule, index int) bool {
+	s.rulesMutex.Lock()
+	defer s.rulesMutex.Unlock()
+
+	h, err := handler.NewHandler(rule.Handler.Type, rule.Handler.Parameter)
+	if err != nil {
+		zap.L().Error("Failed to create handler for new rule", zap.Error(err))
+		return false
+	}
+	s.handlers[rule.Handler.Name] = h
+
+	m, err := matcher.NewMatcher(rule.Type, rule.Parameter)
+	if err != nil {
+		zap.L().Error("Failed to create matcher for new rule", zap.Error(err))
+		return false
+	}
+
+	if index < 0 || index > len(s.config.Rules) {
+		index = len(s.config.Rules)
+	}
+
+	s.config.Rules = append(s.config.Rules[:index], append([]config.Rule{*rule}, s.config.Rules[index:]...)...)
+	s.matchers = append(s.matchers[:index], append([]matcher.Matcher{m}, s.matchers[index:]...)...)
+
+	zap.L().Info("Temporary rule added", zap.String("rule_name", rule.Name), zap.Int("index", index))
+	return true
+}
+
+func (s *Server) RemoveRule(index int) bool {
+	s.rulesMutex.Lock()
+	defer s.rulesMutex.Unlock()
+
+	if index < 0 || index >= len(s.config.Rules) {
+		return false
+	}
+
+	if !s.config.Rules[index].IsTemporary {
+		zap.L().Warn("Attempted to remove a permanent rule", zap.Int("index", index))
+		return false
+	}
+
+	rule := s.config.Rules[index]
+	s.config.Rules = append(s.config.Rules[:index], s.config.Rules[index+1:]...)
+	s.matchers = append(s.matchers[:index], s.matchers[index+1:]...)
+
+	zap.L().Info("Temporary rule removed", zap.String("rule_name", rule.Name), zap.Int("index", index))
+	return true
+}
+
+func (s *Server) MoveRule(from, to int) bool {
+	s.rulesMutex.Lock()
+	defer s.rulesMutex.Unlock()
+
+	if from < 0 || from >= len(s.config.Rules) || to < 0 || to >= len(s.config.Rules) {
+		zap.L().Warn("Attempted to move rule with invalid indices", zap.Int("from", from), zap.Int("to", to))
+		return false
+	}
+
+	if from == to {
+		return true
+	}
+
+	rule := s.config.Rules[from]
+	m := s.matchers[from]
+
+	s.config.Rules = append(s.config.Rules[:from], s.config.Rules[from+1:]...)
+	s.matchers = append(s.matchers[:from], s.matchers[from+1:]...)
+
+	if to > len(s.config.Rules) {
+		to = len(s.config.Rules)
+	}
+	s.config.Rules = append(s.config.Rules[:to], append([]config.Rule{rule}, s.config.Rules[to:]...)...)
+	s.matchers = append(s.matchers[:to], append([]matcher.Matcher{m}, s.matchers[to:]...)...)
+
+	zap.L().Info("Rule moved successfully", zap.Int("from", from), zap.Int("to", to), zap.String("rule_name", rule.Name))
+	return true
+}
+
 func (s *Server) acceptLoop(ln net.Listener) {
 	defer s.wg.Done()
 	zap.L().Info("Listening for connections", zap.String("address", ln.Addr().String()))

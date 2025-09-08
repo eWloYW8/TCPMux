@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 )
 
 type Server interface {
@@ -24,6 +25,9 @@ type Server interface {
 	CloseConnection(id string) bool
 	GetRules() []config.Rule
 	SetRuleEnabled(index int, enabled bool) bool
+	AddRule(rule *config.Rule, index int) bool
+	RemoveRule(index int) bool
+	MoveRule(from, to int) bool
 }
 
 type Controller struct {
@@ -58,6 +62,9 @@ func (c *Controller) Start() {
 	api.GET("/ws/connections", c.wsConnections)
 	api.GET("/rules", c.getRules)
 	api.POST("/rules/:index/toggle/:enabled", c.toggleRule)
+	api.POST("/rules/temp", c.addTemporaryRule)
+	api.DELETE("/rules/:index", c.removeRule)
+	api.POST("/rules/move", c.moveRule)
 
 	c.httpServer = &http.Server{
 		Addr:    c.config.Listen,
@@ -220,6 +227,7 @@ type jsonRule struct {
 	Parameter   interface{} `json:"parameter"`
 	Handler     interface{} `json:"handler"`
 	Enabled     bool        `json:"enabled"`
+	IsTemporary bool        `json:"is_temporary"`
 }
 
 func (c *Controller) getRules(ctx *gin.Context) {
@@ -247,7 +255,8 @@ func (c *Controller) getRules(ctx *gin.Context) {
 				Type:      r.Handler.Type,
 				Parameter: handlerParameter,
 			},
-			Enabled: r.Enabled,
+			Enabled:     r.Enabled,
+			IsTemporary: r.IsTemporary,
 		}
 	}
 
@@ -274,6 +283,71 @@ func (c *Controller) toggleRule(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Rule %d enabled state set to %t", index, enabled)})
 	} else {
 		ctx.JSON(http.StatusNotFound, gin.H{"error": "Rule not found"})
+	}
+}
+
+func (c *Controller) addTemporaryRule(ctx *gin.Context) {
+	var body struct {
+		Index *int   `json:"index"`
+		Rule  string `json:"rule"`
+	}
+
+	if err := ctx.BindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	var newRule config.Rule
+	if err := yaml.Unmarshal([]byte(body.Rule), &newRule); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid YAML rule format: %v", err)})
+		return
+	}
+
+	newRule.IsTemporary = true
+	newRule.Enabled = true
+
+	index := -1
+	if body.Index != nil {
+		index = *body.Index
+	}
+
+	if c.server.AddRule(&newRule, index) {
+		ctx.JSON(http.StatusOK, gin.H{"message": "Temporary rule added successfully"})
+	} else {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Failed to add rule at specified index"})
+	}
+}
+
+func (c *Controller) removeRule(ctx *gin.Context) {
+	indexStr := ctx.Param("index")
+	index, err := strconv.Atoi(indexStr)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid rule index"})
+		return
+	}
+
+	if c.server.RemoveRule(index) {
+		ctx.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Temporary rule at index %d removed successfully", index)})
+	} else {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Rule not found or is a permanent rule"})
+	}
+}
+
+func (c *Controller) moveRule(ctx *gin.Context) {
+	var body struct {
+		From int `json:"from"`
+		To   int `json:"to"`
+	}
+
+	if err := ctx.BindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	if c.server.MoveRule(body.From, body.To) {
+		ctx.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Rule moved from index %d to %d", body.From, body.To)})
+	} else {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Failed to move rule. Check if indices are valid."})
 	}
 }
 
