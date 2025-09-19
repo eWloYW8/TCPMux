@@ -1,6 +1,6 @@
 # TCPMux
 
-TCPMux is a TCP traffic multiplexer written in Go.
+TCPMux is a TCP traffic multiplexer written in Go, which enables you to host multiple application-layer protocols on a single port.
 
 ## Usage
 
